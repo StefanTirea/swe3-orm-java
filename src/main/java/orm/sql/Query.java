@@ -70,12 +70,12 @@ public class Query<T> {
     private Object convertToEntity(ResultSet rs) {
         List<T> result = new ArrayList<>();
         while(rs.next()) {
-            query.getJoin().stream()
+            /*query.getJoin().stream()
                     .flatMap(join -> join.getRight().getFields().stream())
-                    .filter(field -> query.getSelect().containsKey(field.getName()))
+                    .filter(field -> query.getSelect().containsKey(field.getName()));*/
 
             Object o = entity.getType().getDeclaredConstructor().newInstance();
-            for(Field f : query.getSelect()) {
+            for(Field f : query.getSelect().values()) {
                 java.lang.reflect.Field declaredField = entity.getType().getDeclaredField(f.getName());
                 declaredField.setAccessible(true);
                 declaredField.set(o, rs.getObject(f.getName()));

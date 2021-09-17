@@ -4,7 +4,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.Singular;
 import orm.config.Entity;
 import orm.config.Field;
 
@@ -17,14 +16,13 @@ import java.util.stream.Collectors;
 @Data
 public class QueryConfig {
 
-    // private List<Field> select = new ArrayList<>();
     private Map<String, Field> select = new HashMap<>();
     private Entity from;
     private List<Where> where = new ArrayList<>();
     private List<Join> join = new ArrayList<>();
 
     public String buildQuery() {
-        return "select " + select.stream().map(Field::getName).collect(Collectors.joining(","))
+        return "select " + String.join(",", select.keySet())
                 + "\nfrom " + from.getTableName()
                 + "\n" + join.stream().map(this::mapJoin).collect(Collectors.joining("\n"))
                 + "\n" + where.stream().map(Where::build).collect(Collectors.joining(" "))
