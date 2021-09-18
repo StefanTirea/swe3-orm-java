@@ -5,7 +5,7 @@ import orm.annotation.ForeignKey;
 import orm.annotation.Id;
 import orm.annotation.Table;
 
-@Table("'user'")
+@Table("logs")
 public class LogEntity {
 
     @Id

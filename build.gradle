@@ -29,6 +29,7 @@ dependencies {
     implementation group: 'org.slf4j', name: 'slf4j-simple', version: '2.0.0-alpha1'
 
     implementation group: 'org.reflections', name: 'reflections', version: '0.9.12'
+    implementation group: 'cglib', name: 'cglib', version: '3.3.0'
 
     testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-params', version: '5.7.0'
     testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: '5.7.0'

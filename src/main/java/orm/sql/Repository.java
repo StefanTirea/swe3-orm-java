@@ -5,6 +5,7 @@ import java.util.List;
 
 import static orm.sql.Query.selectFrom;
 
+@orm.annotation.Repository
 public abstract class Repository<T> {
 
     private final Class<T> type;

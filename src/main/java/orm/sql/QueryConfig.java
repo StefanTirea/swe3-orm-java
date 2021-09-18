@@ -22,7 +22,7 @@ public class QueryConfig {
     private List<Join> join = new ArrayList<>();
 
     public String buildQuery() {
-        return "select " + String.join(",", select.keySet())
+        return "select " + select.keySet().stream().map(it -> from.getTableName() + "." + it).collect(Collectors.joining(","))
                 + "\nfrom " + from.getTableName()
                 + "\n" + join.stream().map(this::mapJoin).collect(Collectors.joining("\n"))
                 + "\n" + where.stream().map(Where::build).collect(Collectors.joining(" "))
