@@ -22,11 +22,20 @@ public class QueryConfig {
     private List<Join> join = new ArrayList<>();
 
     public String buildQuery() {
-        return "select " + select.keySet().stream().map(it -> from.getTableName() + "." + it).collect(Collectors.joining(","))
+        return "select " + select.entrySet().stream().map(Map.Entry::getKey).collect(Collectors.joining(","))
                 + "\nfrom " + from.getTableName()
                 + "\n" + join.stream().map(this::mapJoin).collect(Collectors.joining("\n"))
-                + "\n" + where.stream().map(Where::build).collect(Collectors.joining(" "))
+                + mapWhereClause()
                 + ";";
+    }
+
+    private String mapWhereClause() {
+        if (!where.isEmpty()) {
+            return "\nwhere " + where.stream().
+                    map(Where::build)
+                    .collect(Collectors.joining());
+        }
+        return "";
     }
 
     private String mapJoin(Join join) {

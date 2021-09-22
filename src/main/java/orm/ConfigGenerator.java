@@ -41,9 +41,18 @@ public class ConfigGenerator {
     private EntityRelation mapEntityRelation(Class<?> clazz, java.lang.reflect.Field field) {
         return EntityRelation.builder()
                 .left(clazz)
-                .right((Class<?>) ((ParameterizedType) field.getGenericType()).getActualTypeArguments()[0])
+                .right(mapRightEntityRelation(field))
                 .type(field.isAnnotationPresent(OneToMany.class) ? ONE_TO_MANY : MANY_TO_ONE)
+                .fieldName(field.getName())
                 .build();
+    }
+
+    private Class<?> mapRightEntityRelation(java.lang.reflect.Field field) {
+        if (field.getGenericType() instanceof ParameterizedType) {
+            return (Class<?>) ((ParameterizedType) field.getGenericType()).getActualTypeArguments()[0];
+        } else {
+            return field.getType();
+        }
     }
 
     private Entity mapEntity(Class<?> clazz) {
