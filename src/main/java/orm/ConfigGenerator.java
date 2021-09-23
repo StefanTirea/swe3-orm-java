@@ -10,18 +10,13 @@ import orm.config.Entity;
 import orm.config.EntityRelation;
 import orm.config.Field;
 import orm.config.OrmConfig;
-import orm.config.RelationType;
 
 import java.lang.reflect.ParameterizedType;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static java.util.function.Function.identity;
-import static java.util.function.Predicate.not;
 import static orm.config.RelationType.MANY_TO_ONE;
 import static orm.config.RelationType.ONE_TO_MANY;
 
@@ -39,11 +34,13 @@ public class ConfigGenerator {
     }
 
     private EntityRelation mapEntityRelation(Class<?> clazz, java.lang.reflect.Field field) {
+        Class<?> joinClass = mapRightEntityRelation(field);
         return EntityRelation.builder()
                 .left(clazz)
-                .right(mapRightEntityRelation(field))
+                .right(joinClass)
                 .type(field.isAnnotationPresent(OneToMany.class) ? ONE_TO_MANY : MANY_TO_ONE)
                 .fieldName(field.getName())
+                .foreignKeyName(field.isAnnotationPresent(OneToMany.class) ? field.getAnnotation(OneToMany.class).value() : null)
                 .build();
     }
 

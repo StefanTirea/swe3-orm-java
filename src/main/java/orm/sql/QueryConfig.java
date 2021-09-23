@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static java.util.Objects.nonNull;
+
 @Data
 public class QueryConfig {
 
@@ -39,9 +41,13 @@ public class QueryConfig {
     }
 
     private String mapJoin(Join join) {
+        String foreignKeyLeft = join.getRight().getRelations().get(join.getLeft().getType()).getForeignKeyName();
+        String foreignKeyRight = join.getLeft().getRelations().get(join.getRight().getType()).getForeignKeyName();
+        String leftJoinId = nonNull(foreignKeyLeft) ? foreignKeyLeft : join.getLeft().getIdName();
+        String rightJoinId = nonNull(foreignKeyRight) ? foreignKeyRight : join.getRight().getIdName();
         join.validate();
-        return join.getType().getSql() + join.getRight().getTableName() + String.format(" ON %s.%s = %s.%s", join.getLeft().getTableName(), join.getLeft().getIdName(),
-                join.getRight().getTableName(), join.getRight().getIdName());
+        return join.getType().getSql() + join.getRight().getTableName() + String.format(" ON %s.%s = %s.%s", join.getLeft().getTableName(), leftJoinId,
+                join.getRight().getTableName(), rightJoinId);
     }
 }
 
@@ -65,7 +71,10 @@ class Join {
 @RequiredArgsConstructor
 @Getter
 enum JoinType {
-    INNER_JOIN("INNER JOIN ");
+    INNER_JOIN("INNER JOIN "),
+    LEFT_JOIN("LEFT JOIN "),
+    RIGHT_JOIN("RIGHT JOIN "),
+    ;
 
     private final String sql;
 }

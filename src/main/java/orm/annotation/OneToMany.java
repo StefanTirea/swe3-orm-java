@@ -9,4 +9,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Relation
 public @interface OneToMany {
+
+    /**
+     * @return foreign key to join on
+     */
+    String value();
 }

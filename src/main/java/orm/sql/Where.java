@@ -3,10 +3,6 @@ package orm.sql;
 import lombok.Builder;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
-import orm.config.Field;
-
-import java.lang.reflect.Array;
-import java.util.List;
 
 @Data
 @Builder
@@ -18,9 +14,10 @@ public class Where {
     private String join;
 
     public String build() {
-        return StringUtils.joinWith(" ", join, field, operator, mapInput()).trim();
+        return StringUtils.joinWith(" ", join, field, operator, mapInput());
     }
 
+    // TODO handle types correctly
     private Object mapInput() {
         if (input == null) {
             return "null";

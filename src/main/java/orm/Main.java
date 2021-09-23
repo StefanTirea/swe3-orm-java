@@ -23,8 +23,9 @@ public class Main {
         ConfigGenerator configGenerator = new ConfigGenerator();
         List<LogEntity> logEntities = Query.fetchAllFrom(LogEntity.class);
         List<UserEntity> userEntities = Query.fetchAllFrom(UserEntity.class);
+
+
         List<UserEntity> filtered = Query.where("firstname", "=", "Stefan")
-                .or("lastname", "=", "Mustermann")
                 .fetchAll(UserEntity.class);
 
         // Proxy Interface

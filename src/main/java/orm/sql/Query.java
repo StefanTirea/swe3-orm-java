@@ -3,10 +3,11 @@ package orm.sql;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
-import org.apache.commons.lang3.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 import orm.config.Entity;
 import orm.config.EntityRelation;
 import orm.config.Field;
+import orm.config.RelationType;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -16,15 +17,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-import static java.util.Objects.nonNull;
-import static org.apache.commons.lang3.StringUtils.joinWith;
+import static java.lang.String.join;
 import static orm.config.OrmConfig.ORM_CONFIG;
+import static orm.config.RelationType.ONE_TO_MANY;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
+@Slf4j
 public class Query {
 
     private Entity entity;
     private QueryConfig query = new QueryConfig();
+    private boolean ignoreJoin;
 
     public static Query where(String column, String operator, Object input) {
         Query query = new Query();
@@ -61,25 +64,37 @@ public class Query {
         return this;
     }
 
+    private Query ignoreJoin() {
+        ignoreJoin = true;
+        return this;
+    }
+
     @SneakyThrows
     @SuppressWarnings("unchecked")
     public <Any> List<Any> fetchAll(Class<Any> type) {
         Entity entity = ORM_CONFIG.get(type);
         this.entity = entity;
         query.setFrom(entity);
-        entity.getFields().forEach(field -> query.getSelect().put(joinWith(".", entity.getTableName(), field.getName()), field));
-        entity.getRelations().values()
-                .forEach(relation -> {
-                    var left = ORM_CONFIG.get(relation.getLeft());
-                    var right = ORM_CONFIG.get(relation.getRight());
-                    query.getJoin().add(Join.builder()
-                                    .left(left)
-                                    .right(right)
-                                    .type(JoinType.INNER_JOIN)
-                            .build());
-                    right.getFields().forEach(field -> query.getSelect().put(joinWith(".", right.getTableName(), field.getName()), field));
-                });
+        mapSelect(entity.getFields(), entity.getTableName());
+        if (!ignoreJoin) {
+            entity.getRelations().values().stream()
+                    .filter(it -> !ONE_TO_MANY.equals(it.getType()))
+                    .forEach(relation -> {
+                        var left = ORM_CONFIG.get(relation.getLeft());
+                        var right = ORM_CONFIG.get(relation.getRight());
+                        query.getJoin().add(Join.builder()
+                                .left(left)
+                                .right(right)
+                                .type(JoinType.INNER_JOIN)
+                                .build());
+                        mapSelect(right.getFields(), right.getTableName());
+                    });
+        }
         return (List<Any>) execute(this::convertToEntity);
+    }
+
+    private void mapSelect(List<Field> fields, String tableName) {
+        fields.forEach(field -> query.getSelect().put(String.format("%s.%s as %s_%s", tableName, field.getName(), tableName, field.getName()), field));
     }
 
     @SneakyThrows
@@ -91,22 +106,36 @@ public class Query {
             for (Field f : entity.getFields()) {
                 java.lang.reflect.Field declaredField = entity.getType().getDeclaredField(f.getName());
                 declaredField.setAccessible(true);
-                declaredField.set(o, rs.getObject(f.getName()));
+                declaredField.set(o, rs.getObject(join("_", entity.getTableName(), f.getName())));
             }
 
             // instantiate object for joins if eager fetching is active
             // TODO: does not work for List Join (OneToMany)
-            for (EntityRelation relation: entity.getRelations().values()) {
-                Object joinObject = relation.getRight().getDeclaredConstructor().newInstance();
-                for (Field f : ORM_CONFIG.get(relation.getRight()).getFields()) {
-                    java.lang.reflect.Field declaredField = relation.getRight().getDeclaredField(f.getName());
-                    declaredField.setAccessible(true);
-                    declaredField.set(joinObject, rs.getObject(f.getName()));
+            if (!ignoreJoin) {
+                for (EntityRelation relation: entity.getRelations().values()) {
+                    Entity joinEntity = ORM_CONFIG.get(relation.getRight());
+                    if (relation.getType() == RelationType.MANY_TO_ONE) {
+                        Object joinObject = relation.getRight().getDeclaredConstructor().newInstance();
+                        for (Field f : joinEntity.getFields()) {
+                            java.lang.reflect.Field declaredField = relation.getRight().getDeclaredField(f.getName());
+                            declaredField.setAccessible(true);
+                            declaredField.set(joinObject, rs.getObject(join("_", joinEntity.getTableName(), f.getName())));
+                        }
+                        // add join object to main object
+                        java.lang.reflect.Field declaredField = entity.getType().getDeclaredField(relation.getFieldName());
+                        declaredField.setAccessible(true);
+                        declaredField.set(o, joinObject);
+                    } else {
+                        java.lang.reflect.Field fieldId = entity.getType().getDeclaredField(entity.getIdName());
+                        fieldId.setAccessible(true);
+                        List<?> joinObject = where(relation.getForeignKeyName(), "=", fieldId.get(o))
+                                .ignoreJoin()
+                                .fetchAll(joinEntity.getType());
+                        java.lang.reflect.Field declaredField = entity.getType().getDeclaredField(relation.getFieldName());
+                        declaredField.setAccessible(true);
+                        declaredField.set(o, joinObject);
+                    }
                 }
-                // add join object to main object
-                java.lang.reflect.Field declaredField = entity.getType().getDeclaredField(relation.getFieldName());
-                declaredField.setAccessible(true);
-                declaredField.set(o, joinObject);
             }
 
             result.add(o);
@@ -117,6 +146,7 @@ public class Query {
     @SneakyThrows
     private Object execute(Function<ResultSet, ?> fn) {
         try (PreparedStatement preparedStatement = connection().prepareStatement(query.buildQuery())) {
+            log.info(query.buildQuery());
             return fn.apply(preparedStatement.executeQuery());
         } catch (SQLException e) {
             String sqlQuery = query.buildQuery();

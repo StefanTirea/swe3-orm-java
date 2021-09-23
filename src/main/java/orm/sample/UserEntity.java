@@ -22,6 +22,6 @@ public class UserEntity {
 
     private Integer age;
 
-    @OneToMany
+    @OneToMany("user_id")
     private List<LogEntity> logs;
 }

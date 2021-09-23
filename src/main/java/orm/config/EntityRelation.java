@@ -10,5 +10,6 @@ public class EntityRelation {
     private Class<?> left;
     private Class<?> right;
     private String fieldName;
+    private String foreignKeyName;
     private RelationType type;
 }
