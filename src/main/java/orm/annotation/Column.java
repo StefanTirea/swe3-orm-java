@@ -7,12 +7,8 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-@Relation
-public @interface OneToMany {
+public @interface Column {
 
-    /**
-     * @return foreign key to join on
-     */
-    String value();
+    String value() default "";
     boolean nullable() default false;
 }

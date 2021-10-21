@@ -9,4 +9,5 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Relation
 public @interface ManyToOne {
+    boolean nullable() default false;
 }
