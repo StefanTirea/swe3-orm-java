@@ -10,9 +10,5 @@ import java.lang.annotation.Target;
 @Relation
 public @interface OneToMany {
 
-    /**
-     * @return foreign key to join on
-     */
-    String value();
-    boolean nullable() default false;
+    Class<?> columnType();
 }

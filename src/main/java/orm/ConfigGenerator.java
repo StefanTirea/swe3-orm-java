@@ -40,7 +40,7 @@ public class ConfigGenerator {
                 .right(joinClass)
                 .type(field.isAnnotationPresent(OneToMany.class) ? ONE_TO_MANY : MANY_TO_ONE)
                 .fieldName(field.getName())
-                .foreignKeyName(field.isAnnotationPresent(OneToMany.class) ? field.getAnnotation(OneToMany.class).value() : null)
+                //.foreignKeyName(field.isAnnotationPresent(OneToMany.class) ? field.getAnnotation(OneToMany.class).value() : null)
                 .build();
     }
 

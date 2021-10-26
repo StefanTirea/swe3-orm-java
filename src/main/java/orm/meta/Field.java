@@ -1,6 +1,5 @@
 package orm.meta;
 
-import lombok.Builder;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import orm.annotation.Column;
@@ -11,17 +10,19 @@ import orm.annotation.OneToMany;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
+
 @Getter
-@Builder
 public class Field {
 
-    private String columnName;
-    private Class<?> type;
-    private Entity entity;
+    private final String columnName;
+    private final Class<?> type;
+    private final Entity entity;
 
-    private boolean primaryKey;
-    private boolean foreignKey;
-    private boolean nullable;
+    private final boolean primaryKey;
+    private final boolean foreignKey;
+    private final boolean virtualColumn;
+    private final boolean nullable;
 
     private Method method;
     private Method setMethod;
@@ -29,11 +30,29 @@ public class Field {
     @SneakyThrows
     public Field(java.lang.reflect.Field field, Entity entity) {
         this.entity = entity;
-        type = field.getType();
+        this.columnName = field.isAnnotationPresent(ManyToOne.class) && isNotBlank(field.getAnnotation(ManyToOne.class).value())
+                ? field.getAnnotation(ManyToOne.class).value()
+                : field.getName();
+        this.type = field.getType();
         findMethods(field, entity);
-        primaryKey = field.isAnnotationPresent(Id.class);
-        foreignKey = field.isAnnotationPresent(OneToMany.class);
-        nullable = mapNullable(field);
+        this.primaryKey = field.isAnnotationPresent(Id.class);
+        this.foreignKey = field.isAnnotationPresent(ManyToOne.class);
+        this.virtualColumn = field.isAnnotationPresent(OneToMany.class);
+        this.nullable = mapNullable(field);
+    }
+
+    /**
+     *
+     * @param o Object value of the #Entity
+     * @return object value of the field and if it is an Entity object then the primary key value
+     */
+    @SneakyThrows
+    public Object getColumnValue(Object o) {
+        if (isForeignKey()) {
+            var foreignKeyObject = getMethod().invoke(o);
+            return new Entity(getType()).getPrimaryKeyField().getMethod().invoke(foreignKeyObject);
+        }
+        return getMethod().invoke(o);
     }
 
     private void findMethods(java.lang.reflect.Field field, Entity entity) {
@@ -52,8 +71,7 @@ public class Field {
     }
 
     private boolean mapNullable(java.lang.reflect.Field field) {
-        return (field.isAnnotationPresent(Column.class) || field.getAnnotation(Column.class).nullable())
-                || (field.isAnnotationPresent(OneToMany.class) || field.getAnnotation(OneToMany.class).nullable())
-                || (field.isAnnotationPresent(ManyToOne.class) || field.getAnnotation(ManyToOne.class).nullable());
+        return (field.isAnnotationPresent(Column.class) && field.getAnnotation(Column.class).nullable())
+                || (field.isAnnotationPresent(ManyToOne.class) && field.getAnnotation(ManyToOne.class).nullable());
     }
 }

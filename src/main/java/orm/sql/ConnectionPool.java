@@ -19,29 +19,8 @@ public final class ConnectionPool {
     private int openConnections;
 
     public ConnectionPool() {
-        pool.add(createConnection());
+        setConnection();
         Runtime.getRuntime().addShutdownHook(new Thread(this::closeConnections));
-    }
-
-    @SneakyThrows
-    public void setConnection() {
-        synchronized (pool) {
-            if (pool.isEmpty()) {
-                if (openConnections <= databaseConfig.getPoolSize()) {
-                    pool.push(createConnection());
-                } else {
-                    for (int i = 0; i < 100; i++) {
-                        Thread.sleep(50);
-                        if (i == 49) {
-                            log.warn("Request could not get Connection from Connection Pool after 5 seconds!!!");
-                            throw new IllegalStateException("Could not process request at the moment. Try again later!");
-                        }
-                    }
-                }
-            }
-            openConnections++;
-            ConnectionContext.CONNECTION.set(pool.pop());
-        }
     }
 
     @SneakyThrows
@@ -60,6 +39,27 @@ public final class ConnectionPool {
             }
         }
         openConnections--;
+    }
+
+    @SneakyThrows
+    private void setConnection() {
+        synchronized (pool) {
+            if (pool.isEmpty()) {
+                if (openConnections <= databaseConfig.getPoolSize()) {
+                    pool.push(createConnection());
+                } else {
+                    for (int i = 0; i < 100; i++) {
+                        Thread.sleep(50);
+                        if (i == 49) {
+                            log.warn("Request could not get Connection from Connection Pool after 5 seconds!!!");
+                            throw new IllegalStateException("Could not process request at the moment. Try again later!");
+                        }
+                    }
+                }
+            }
+            openConnections++;
+            ConnectionContext.CONNECTION.set(pool.pop());
+        }
     }
 
     @SneakyThrows

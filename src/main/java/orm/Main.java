@@ -18,7 +18,6 @@ public class Main {
 
     public static void main(String[] args) {
         ConnectionPool connectionPool = new ConnectionPool();
-        connectionPool.setConnection();
 
         ConfigGenerator configGenerator = new ConfigGenerator();
         List<LogEntity> logEntities = Query.fetchAllFrom(LogEntity.class);
