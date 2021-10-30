@@ -4,14 +4,12 @@ import net.sf.cglib.proxy.Callback;
 import net.sf.cglib.proxy.Enhancer;
 import net.sf.cglib.proxy.MethodInterceptor;
 import orm.annotation.Repository;
-import orm.sample.DynamicInvocationHandler;
 import orm.sample.LogEntity;
 import orm.sample.UserEntity;
 import orm.sample.UserService;
 import orm.sql.ConnectionPool;
 import orm.sql.Query;
 
-import java.lang.reflect.Proxy;
 import java.util.List;
 
 public class Main {
@@ -28,7 +26,7 @@ public class Main {
                 .fetchAll(UserEntity.class);
 
         // Proxy Interface
-        orm.sample.UserRepository repo = (orm.sample.UserRepository) Proxy.newProxyInstance(orm.sample.UserRepository.class.getClassLoader(), new Class[]{orm.sample.UserRepository.class}, new DynamicInvocationHandler());
+        // orm.sample.UserRepository repo = (orm.sample.UserRepository) Proxy.newProxyInstance(orm.sample.UserRepository.class.getClassLoader(), new Class[]{orm.sample.UserRepository.class}, new DynamicInvocationHandler());
 
         // Proxy Class
         Enhancer enhancer = new Enhancer();

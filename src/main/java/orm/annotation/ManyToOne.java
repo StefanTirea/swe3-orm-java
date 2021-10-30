@@ -16,4 +16,6 @@ public @interface ManyToOne {
     String value() default "";
 
     boolean nullable() default false;
+
+    boolean lazy() default false;
 }

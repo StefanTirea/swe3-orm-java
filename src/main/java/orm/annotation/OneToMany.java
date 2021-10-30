@@ -11,4 +11,6 @@ import java.lang.annotation.Target;
 public @interface OneToMany {
 
     Class<?> columnType();
+
+    boolean lazy() default false;
 }

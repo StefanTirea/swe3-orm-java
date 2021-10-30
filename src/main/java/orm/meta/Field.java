@@ -23,6 +23,7 @@ public class Field {
     private final boolean foreignKey;
     private final boolean virtualColumn;
     private final boolean nullable;
+    private final boolean lazy;
 
     private Method method;
     private Method setMethod;
@@ -39,6 +40,7 @@ public class Field {
         this.foreignKey = field.isAnnotationPresent(ManyToOne.class);
         this.virtualColumn = field.isAnnotationPresent(OneToMany.class);
         this.nullable = mapNullable(field);
+        this.lazy = true; // TODO
     }
 
     /**
