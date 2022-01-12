@@ -3,6 +3,7 @@ package orm.meta;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
 import net.sf.cglib.proxy.Enhancer;
+import org.apache.commons.lang3.tuple.Pair;
 import org.reflections.Reflections;
 import orm.annotation.Table;
 import orm.sample.LazyLoading;
@@ -17,12 +18,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -44,6 +47,7 @@ public class DslContext {
 
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
+        System.out.println("findById");
         Entity entity = getEntityForClass(type);
 
         String columns = entity.getAllFields().stream()
@@ -56,6 +60,25 @@ public class DslContext {
         return mapObjectsFromResultSet(entity, List.of(id), selectQuery).stream()
                 .findFirst()
                 .map(type::cast);
+    }
+
+    @SneakyThrows
+    @SuppressWarnings("unchecked")
+    public <T> List<T> findBy(Class<T> type, Pair<String, Object>... where) {
+        System.out.println("findBy");
+        Entity entity = getEntityForClass(type);
+
+        String columns = entity.getAllFields().stream()
+                .filter(not(Field::isVirtualColumn))
+                .map(Field::getColumnName)
+                .collect(Collectors.joining(","));
+        String whereQuery = Arrays.stream(where)
+                .map(pair -> pair.getLeft() + " = ?")
+                .collect(Collectors.joining(","));
+
+        String selectQuery = String.format("SELECT %s FROM %s WHERE %s", columns, entity.getTableName(), whereQuery);
+
+        return (List<T>) mapObjectsFromResultSet(entity, Arrays.stream(where).map(Pair::getRight).collect(Collectors.toList()), selectQuery);
     }
 
     @SneakyThrows
@@ -114,6 +137,7 @@ public class DslContext {
     }
 
     @SneakyThrows
+    @SuppressWarnings("unchecked")
     private List<Object> mapObjectsFromResultSet(Entity entity, List<Object> values, String query) {
         try {
             @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(query);
@@ -128,32 +152,26 @@ public class DslContext {
                     if (column.isForeignKey()) {
                         Object id = rs.getObject(column.getColumnName());
                         if (column.isLazy()) {
-                            Object e = Enhancer.create(column.getType(), new LazyLoading<>(() -> findById(column.getType(), id).orElseThrow()));
-                            /*enhancer.setCallbacks(new Callback[]{
-                                    (MethodInterceptor) (obj, method, argss, proxy) -> {
-                                        // Not really working as expected
-                                        Object e = findById(column.getType(), id).orElseThrow();
-                                        column.getSetMethod().invoke(o, e);
-                                        System.out.println("Proxy test " + method.getName());
-                                        System.out.println("Proxy test " + argss);
-                                        return method.invoke(e, argss);
-                                    }
-                            });*/
-                            column.getSetMethod().invoke(o, e);
+                            column.getSetMethod().invoke(o, Enhancer.create(column.getType(), new LazyLoading<>(() -> findById(column.getType(), id).orElseThrow())));
                         } else {
                             column.getSetMethod().invoke(o, findById(column.getType(), id).orElseThrow());
                         }
                     } else if (column.isVirtualColumn()) {
-                        // TODO implement find by id in field
-                        var invoker = new LazyObjectHandler(ArrayList::new, value -> {
-                            try {
-                                column.getSetMethod().invoke(o, value);
-                            } catch (IllegalAccessException | InvocationTargetException e) {
-                                e.printStackTrace();
-                            }
-                        });
-                        Object columnValue = Proxy.newProxyInstance(column.getType().getClassLoader(), new Class[]{column.getType()}, invoker);
-                        column.getSetMethod().invoke(o, columnValue);
+                        Field fkField = getEntityForClass(column.getRealType()).getFieldByClass(entity.getType());
+                        Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
+                        if (column.isLazy()) {
+                            var invoker = new LazyObjectHandler(() -> findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)), value -> {
+                                try {
+                                    column.getSetMethod().invoke(o, value);
+                                } catch (IllegalAccessException | InvocationTargetException e) {
+                                    e.printStackTrace();
+                                }
+                            });
+                            Object columnValue = Proxy.newProxyInstance(column.getType().getClassLoader(), new Class[]{column.getType()}, invoker);
+                            column.getSetMethod().invoke(o, columnValue);
+                        } else {
+                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)));
+                        }
                     } else {
                         Object columnValue = rs.getObject(column.getColumnName());
                         column.getSetMethod().invoke(o, columnValue);

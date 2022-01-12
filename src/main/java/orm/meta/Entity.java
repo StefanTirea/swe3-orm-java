@@ -39,4 +39,11 @@ public class Entity {
                 .map(field -> field.getColumnValue(o))
                 .collect(Collectors.toList());
     }
+
+    public Field getFieldByClass(Class<?> type) {
+        return allFields.stream()
+                .filter(field -> field.getRealType().equals(type))
+                .findFirst()
+                .orElseThrow();
+    }
 }

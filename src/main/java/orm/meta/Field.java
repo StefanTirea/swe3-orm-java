@@ -17,6 +17,7 @@ public class Field {
 
     private final String columnName;
     private final Class<?> type;
+    private final Class<?> realType;
     private final Entity entity;
 
     private final boolean primaryKey;
@@ -35,6 +36,7 @@ public class Field {
                 ? field.getAnnotation(ManyToOne.class).value()
                 : field.getName();
         this.type = field.getType();
+        this.realType = field.isAnnotationPresent(OneToMany.class) ? field.getAnnotation(OneToMany.class).columnType() : field.getType();
         findMethods(field, entity);
         this.primaryKey = field.isAnnotationPresent(Id.class);
         this.foreignKey = field.isAnnotationPresent(ManyToOne.class);

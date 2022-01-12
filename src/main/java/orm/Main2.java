@@ -1,10 +1,12 @@
 package orm;
 
+import org.apache.commons.lang3.tuple.Pair;
 import orm.meta.DslContext;
 import orm.sample.LogEntity;
 import orm.sample.UserEntity;
 import orm.sql.ConnectionPool;
 
+import java.util.List;
 import java.util.Optional;
 
 public class Main2 {
@@ -25,9 +27,8 @@ public class Main2 {
                 .user(userEntity)
                 .build();
         // Long save = dslContext.save(logEntity);
-        Optional<LogEntity> byId = dslContext.findById(LogEntity.class, 1);
+        Optional<UserEntity> byId = dslContext.findById(UserEntity.class, 1);
+        List<UserEntity> byFirstname = dslContext.findBy(UserEntity.class, Pair.of("firstname", "Stefan"));
         //byId.orElseThrow().getLogs().add(logEntity);
-        UserEntity user = byId.orElseThrow().getUser();
-        System.out.println(user.getFirstname());
     }
 }
