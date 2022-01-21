@@ -4,7 +4,6 @@ import org.apache.commons.lang3.tuple.Pair;
 import orm.meta.DslContext;
 import orm.sample.LogEntity;
 import orm.sample.UserEntity;
-import orm.sql.ConnectionPool;
 
 import java.util.List;
 import java.util.Optional;
@@ -12,7 +11,6 @@ import java.util.Optional;
 public class Main2 {
 
     public static void main(String[] args) {
-        ConnectionPool connectionPool = new ConnectionPool();
         DslContext dslContext = new DslContext();
 
         UserEntity userEntity = UserEntity.builder()

@@ -157,7 +157,7 @@ public class DslContext {
                             column.getSetMethod().invoke(o, findById(column.getType(), id).orElseThrow());
                         }
                     } else if (column.isVirtualColumn()) {
-                        Field fkField = getEntityForClass(column.getRealType()).getFieldByClass(entity.getType());
+                        Field fkField = getEntityForClass(column.getType()).getFieldByClass(entity.getType());
                         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
                         if (column.isLazy()) {
                             var invoker = new LazyObjectHandler(() -> findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)), value -> {

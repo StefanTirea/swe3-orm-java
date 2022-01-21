@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Getter
-public class Entity {
+class Entity {
 
     private final String tableName;
     private final Class<?> type;
@@ -42,7 +42,7 @@ public class Entity {
 
     public Field getFieldByClass(Class<?> type) {
         return allFields.stream()
-                .filter(field -> field.getRealType().equals(type))
+                .filter(field -> field.getType().equals(type))
                 .findFirst()
                 .orElseThrow();
     }

@@ -29,6 +29,6 @@ public class LogEntity {
 
     private String entry;
 
-    @ManyToOne("user_id")
+    @ManyToOne(value = "user_id", lazy = true)
     private UserEntity user;
 }
