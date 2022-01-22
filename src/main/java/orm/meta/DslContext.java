@@ -2,16 +2,17 @@ package orm.meta;
 
 import lombok.Cleanup;
 import lombok.SneakyThrows;
-import net.sf.cglib.proxy.Enhancer;
+import lombok.extern.slf4j.Slf4j;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.commons.lang3.tuple.Pair;
 import org.reflections.Reflections;
 import orm.annotation.Table;
-import orm.sample.LazyLoading;
-import orm.sample.LazyObjectHandler;
+import orm.sample.LazyLoadingInterceptor;
+import orm.sample.LogEntity;
 import orm.sql.ConnectionContext;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -32,6 +33,7 @@ import java.util.stream.Stream;
 
 import static java.util.function.Predicate.not;
 
+@Slf4j
 public class DslContext {
 
     private static Map<Class<?>, Entity> TABLES;
@@ -47,7 +49,7 @@ public class DslContext {
 
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
-        System.out.println("findById");
+        log.debug("findById {} {}", type, id);
         Entity entity = getEntityForClass(type);
 
         String columns = entity.getAllFields().stream()
@@ -65,7 +67,7 @@ public class DslContext {
     @SneakyThrows
     @SuppressWarnings("unchecked")
     public <T> List<T> findBy(Class<T> type, Pair<String, Object>... where) {
-        System.out.println("findBy");
+        log.debug("findBy {} {}", type, where);
         Entity entity = getEntityForClass(type);
 
         String columns = entity.getAllFields().stream()
@@ -83,12 +85,12 @@ public class DslContext {
 
     @SneakyThrows
     @SuppressWarnings("unchecked")
-    public <T> T save(T object) {
+    public <T> Optional<T> save(T object) {
         Entity entity = getEntityForObject(object);
         Object id = entity.getPrimaryKeyField().getMethod().invoke(object) == null
                 ? insert(entity, object)
                 : update(entity, object);
-        return (T) findById(entity.getType(), id).orElseThrow();
+        return Optional.ofNullable(id).flatMap(it -> findById(entity.getType(), it)).map(it -> (T) it);
     }
 
     @SneakyThrows
@@ -118,16 +120,24 @@ public class DslContext {
         return executePreparedStatement(entity.getColumnValues(object), insertQuery);
     }
 
-    private Object executePreparedStatement(List<Object> values, String query) throws SQLException {
+    /**
+     * @param values   for prepared statement
+     * @param sqlQuery to be run
+     * @return id from updated entity or null when nothing was updated
+     * @throws SQLException
+     */
+    private Object executePreparedStatement(List<Object> values, String sqlQuery) throws SQLException {
         try {
-            @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(query, Statement.RETURN_GENERATED_KEYS);
+            @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(sqlQuery, Statement.RETURN_GENERATED_KEYS);
             for (int i = 1; i <= values.size(); i++) {
                 preparedStatement.setObject(i, values.get(i - 1));
             }
             preparedStatement.execute();
             @Cleanup ResultSet rs = preparedStatement.getGeneratedKeys();
-            rs.next();
-            Object id = rs.getObject(1);
+            Object id = null;
+            if (rs.next()) {
+                id = rs.getObject(1);
+            }
             connection().commit();
             return id;
         } catch (SQLException e) {
@@ -149,30 +159,24 @@ public class DslContext {
             while (rs.next()) {
                 Object o = entity.getType().getDeclaredConstructor().newInstance();
                 for (Field column : entity.getAllFields()) {
-                    if (column.isForeignKey()) {
+                    if (column.isForeignKey()) { // handle when column is foreignKey
                         Object id = rs.getObject(column.getColumnName());
                         if (column.isLazy()) {
-                            column.getSetMethod().invoke(o, Enhancer.create(column.getType(), new LazyLoading<>(() -> findById(column.getType(), id).orElseThrow())));
+                            var lazyColumnValue = createLazyProxy(column.getType(), () -> findById(column.getType(), id).orElseThrow());
+                            column.getSetMethod().invoke(o, lazyColumnValue);
                         } else {
                             column.getSetMethod().invoke(o, findById(column.getType(), id).orElseThrow());
                         }
-                    } else if (column.isVirtualColumn()) {
+                    } else if (column.isVirtualColumn()) { // handle when column is used for joining only
                         Field fkField = getEntityForClass(column.getType()).getFieldByClass(entity.getType());
                         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
                         if (column.isLazy()) {
-                            var invoker = new LazyObjectHandler(() -> findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)), value -> {
-                                try {
-                                    column.getSetMethod().invoke(o, value);
-                                } catch (IllegalAccessException | InvocationTargetException e) {
-                                    e.printStackTrace();
-                                }
-                            });
-                            Object columnValue = Proxy.newProxyInstance(column.getType().getClassLoader(), new Class[]{column.getType()}, invoker);
-                            column.getSetMethod().invoke(o, columnValue);
+                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)));
+                            column.getSetMethod().invoke(o, lazyColumnValue);
                         } else {
                             column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)));
                         }
-                    } else {
+                    } else { //
                         Object columnValue = rs.getObject(column.getColumnName());
                         column.getSetMethod().invoke(o, columnValue);
                     }
@@ -203,5 +207,17 @@ public class DslContext {
 
     private Connection connection() {
         return ConnectionContext.CONNECTION.get();
+    }
+
+    @SneakyThrows
+    private Object createLazyProxy(Class<?> type, Supplier<?> lazySupplier) {
+        return new ByteBuddy()
+                .subclass(type)
+                .method(ElementMatchers.any())
+                .intercept(MethodDelegation.to(new LazyLoadingInterceptor(lazySupplier)))
+                .make()
+                .load(LogEntity.class.getClassLoader())
+                .getLoaded()
+                .getConstructor().newInstance();
     }
 }

@@ -34,6 +34,6 @@ public class UserEntity {
 
     private Integer age;
 
-    @OneToMany(columnType = LogEntity.class, lazy = true)
-    private List<LogEntity> logs;
+    //@OneToMany(columnType = LogEntity.class, lazy = true)
+    //private List<LogEntity> logs;
 }
