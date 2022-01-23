@@ -1,4 +1,4 @@
-package orm.sql;
+package orm.sample;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;

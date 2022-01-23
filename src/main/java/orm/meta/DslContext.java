@@ -7,11 +7,10 @@ import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.commons.lang3.tuple.Pair;
-import org.reflections.Reflections;
-import orm.annotation.Table;
+import orm.connection.ConnectionConfig;
+import orm.connection.ConnectionPool;
 import orm.sample.LazyLoadingInterceptor;
 import orm.sample.LogEntity;
-import orm.sql.ConnectionContext;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -19,13 +18,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -36,51 +34,40 @@ import static java.util.function.Predicate.not;
 @Slf4j
 public class DslContext {
 
-    private static Map<Class<?>, Entity> TABLES;
+    private final Map<Class<?>, Entity> TABLES = Collections.synchronizedMap(new HashMap<>());
+    private final ConnectionPool connectionPool;
 
-    public DslContext() {
-        if (TABLES == null) {
-            TABLES = new HashMap<>();
-            Reflections reflections = new Reflections("");
-            Set<Class<?>> typesAnnotatedWith = reflections.getTypesAnnotatedWith(Table.class);
-            typesAnnotatedWith.forEach(clazz -> TABLES.put(clazz, new Entity(clazz)));
-        }
+    public DslContext(ConnectionConfig config) {
+        this.connectionPool = new ConnectionPool(config);
     }
 
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
         log.debug("findById {} {}", type, id);
-        Entity entity = getEntityForClass(type);
-
-        String columns = entity.getAllFields().stream()
-                .filter(not(Field::isVirtualColumn))
-                .map(Field::getColumnName)
-                .collect(Collectors.joining(","));
-
-        String selectQuery = String.format("SELECT %s FROM %s WHERE %s = ?", columns, entity.getTableName(), entity.getPrimaryKeyField().getColumnName());
-
-        return mapObjectsFromResultSet(entity, List.of(id), selectQuery).stream()
-                .findFirst()
-                .map(type::cast);
+        return findFirstBy(type, Query.where(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
     }
 
-    @SneakyThrows
+    public <T> Optional<T> findFirstBy(Class<T> type, Query query) {
+        return findBy(type, query).stream().findFirst();
+    }
+
     @SuppressWarnings("unchecked")
-    public <T> List<T> findBy(Class<T> type, Pair<String, Object>... where) {
-        log.debug("findBy {} {}", type, where);
+    public <T> List<T> findBy(Class<T> type, Query query) {
+        log.debug("findBy with query {} {}", type, query);
         Entity entity = getEntityForClass(type);
+        List<Pair<String, Object>> where = query.build(entity);
 
         String columns = entity.getAllFields().stream()
                 .filter(not(Field::isVirtualColumn))
                 .map(Field::getColumnName)
                 .collect(Collectors.joining(","));
-        String whereQuery = Arrays.stream(where)
+        String whereQuery = where.stream()
                 .map(pair -> pair.getLeft() + " = ?")
-                .collect(Collectors.joining(","));
+                .collect(Collectors.joining(" and "));
 
         String selectQuery = String.format("SELECT %s FROM %s WHERE %s", columns, entity.getTableName(), whereQuery);
 
-        return (List<T>) mapObjectsFromResultSet(entity, Arrays.stream(where).map(Pair::getRight).collect(Collectors.toList()), selectQuery);
+        return (List<T>) mapObjectsFromResultSet(entity, where.stream().map(Pair::getRight).toList(), selectQuery);
     }
 
     @SneakyThrows
@@ -103,7 +90,7 @@ public class DslContext {
 
         return executePreparedStatement(Stream.of(entity.getColumnValues(object), List.of(entity.getPrimaryKeyField().getMethod().invoke(object)))
                 .flatMap(Collection::stream)
-                .collect(Collectors.toList()), updateQuery);
+                .toList(), updateQuery);
     }
 
     @SneakyThrows
@@ -123,8 +110,8 @@ public class DslContext {
     /**
      * @param values   for prepared statement
      * @param sqlQuery to be run
-     * @return id from updated entity or null when nothing was updated
-     * @throws SQLException
+     * @return Id from updated entity or null when nothing was updated
+     * @throws SQLException on sql error
      */
     private Object executePreparedStatement(List<Object> values, String sqlQuery) throws SQLException {
         try {
@@ -147,8 +134,8 @@ public class DslContext {
     }
 
     @SneakyThrows
-    @SuppressWarnings("unchecked")
     private List<Object> mapObjectsFromResultSet(Entity entity, List<Object> values, String query) {
+        log.debug("Query {} for entity {} with values {}", query, entity, values);
         try {
             @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(query);
             for (int i = 1; i <= values.size(); i++) {
@@ -171,12 +158,12 @@ public class DslContext {
                         Field fkField = getEntityForClass(column.getType()).getFieldByClass(entity.getType());
                         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
                         if (column.isLazy()) {
-                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)));
+                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Query.where(fkField.getColumnName(), id)));
                             column.getSetMethod().invoke(o, lazyColumnValue);
                         } else {
-                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Pair.of(fkField.getColumnName(), id)));
+                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Query.where(fkField.getColumnName(), id)));
                         }
-                    } else { //
+                    } else { // default behaviour if normal column
                         Object columnValue = rs.getObject(column.getColumnName());
                         column.getSetMethod().invoke(o, columnValue);
                     }
@@ -192,21 +179,23 @@ public class DslContext {
     }
 
     private Entity getEntityForClass(Class<?> type) {
-        if (type == null || !TABLES.containsKey(type)) {
+        if (type == null) {
             throw new IllegalArgumentException();
+        } else if (!TABLES.containsKey(type)) {
+            TABLES.put(type, new Entity(type));
         }
         return TABLES.get(type);
     }
 
     private Entity getEntityForObject(Object o) {
-        if (o == null || !TABLES.containsKey(o.getClass())) {
+        if (o == null) {
             throw new IllegalArgumentException();
         }
-        return TABLES.get(o.getClass());
+        return getEntityForClass(o.getClass());
     }
 
     private Connection connection() {
-        return ConnectionContext.CONNECTION.get();
+        return connectionPool.getConnection();
     }
 
     @SneakyThrows

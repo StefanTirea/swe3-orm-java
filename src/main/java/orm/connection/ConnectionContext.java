@@ -1,4 +1,4 @@
-package orm.sql;
+package orm.connection;
 
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;

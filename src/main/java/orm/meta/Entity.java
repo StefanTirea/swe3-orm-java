@@ -18,6 +18,8 @@ class Entity {
     private final Field primaryKeyField;
 
     public Entity(Class<?> type) {
+        // TODO Validation
+        validate(type);
         this.tableName = type.getAnnotation(Table.class).value();
         this.type = type;
 
@@ -45,5 +47,11 @@ class Entity {
                 .filter(field -> field.getType().equals(type))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private void validate(Class<?> type) {
+        if (!type.isAnnotationPresent(Table.class)) {
+            throw new IllegalArgumentException("Table");
+        }
     }
 }
