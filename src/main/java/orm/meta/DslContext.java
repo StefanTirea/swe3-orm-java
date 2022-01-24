@@ -44,7 +44,7 @@ public class DslContext {
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
         log.debug("findById {} {}", type, id);
-        return findFirstBy(type, Query.where(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
+        return findFirstBy(type, Query.where().equals(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
     }
 
     public <T> Optional<T> findFirstBy(Class<T> type, Query query) {
@@ -55,19 +55,16 @@ public class DslContext {
     public <T> List<T> findBy(Class<T> type, Query query) {
         log.debug("findBy with query {} {}", type, query);
         Entity entity = getEntityForClass(type);
-        List<Pair<String, Object>> where = query.build(entity);
+        Pair<String, List<Object>> whereAndValues = query.build(entity);
 
         String columns = entity.getAllFields().stream()
                 .filter(not(Field::isVirtualColumn))
                 .map(Field::getColumnName)
                 .collect(Collectors.joining(","));
-        String whereQuery = where.stream()
-                .map(pair -> pair.getLeft() + " = ?")
-                .collect(Collectors.joining(" and "));
 
-        String selectQuery = String.format("SELECT %s FROM %s WHERE %s", columns, entity.getTableName(), whereQuery);
+        String selectQuery = String.format("SELECT %s FROM %s %s", columns, entity.getTableName(), whereAndValues.getLeft());
 
-        return (List<T>) mapObjectsFromResultSet(entity, where.stream().map(Pair::getRight).toList(), selectQuery);
+        return (List<T>) mapObjectsFromResultSet(entity, whereAndValues.getRight(), selectQuery);
     }
 
     @SneakyThrows
@@ -158,10 +155,10 @@ public class DslContext {
                         Field fkField = getEntityForClass(column.getType()).getFieldByClass(entity.getType());
                         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
                         if (column.isLazy()) {
-                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Query.where(fkField.getColumnName(), id)));
+                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Query.where().equals(fkField.getColumnName(), id)));
                             column.getSetMethod().invoke(o, lazyColumnValue);
                         } else {
-                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Query.where(fkField.getColumnName(), id)));
+                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Query.where().equals(fkField.getColumnName(), id)));
                         }
                     } else { // default behaviour if normal column
                         Object columnValue = rs.getObject(column.getColumnName());
