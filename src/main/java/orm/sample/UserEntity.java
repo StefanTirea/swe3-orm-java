@@ -13,13 +13,14 @@ import orm.annotation.OneToMany;
 import orm.annotation.Table;
 
 import java.util.List;
+import java.util.Optional;
 
 @Table("user_entity")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@ToString
+@ToString(exclude = "logs")
 @EqualsAndHashCode
 @Builder
 public class UserEntity {
@@ -34,6 +35,6 @@ public class UserEntity {
 
     private Integer age;
 
-    @OneToMany(foreignKeyName = "user_id", lazy = true)
+    @OneToMany(foreignKeyName = "user_id")
     private List<LogEntity> logs;
 }

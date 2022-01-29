@@ -4,6 +4,7 @@ import lombok.Cleanup;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.commons.lang3.tuple.Pair;
@@ -35,6 +36,7 @@ import static java.util.function.Predicate.not;
 @Slf4j
 public class DslContext {
 
+    private static final ThreadLocal<Cache> CACHE = ThreadLocal.withInitial(Cache::new);
     private final Map<Class<?>, Entity> TABLES = Collections.synchronizedMap(new HashMap<>());
     private final ConnectionPool connectionPool;
 
@@ -45,7 +47,10 @@ public class DslContext {
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
         log.debug("findById {} {}", type, id);
-        return findFirstBy(type, Query.where().equals(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
+        Optional<T> cachedEntity = CACHE.get().getEntityWithId(type, id);
+        return cachedEntity.isPresent()
+                ? cachedEntity
+                : findFirstBy(type, Query.where().equals(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
     }
 
     public <T> Optional<T> findFirstBy(Class<T> type, Query query) {
@@ -157,14 +162,14 @@ public class DslContext {
     }
 
     @SneakyThrows
-    private List<Object> selectManyToManyQuery(String query, String column, Object id) {
+    private List<Object> selectIds(String query, Object id) {
         try {
             @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(query);
             preparedStatement.setObject(1, id);
             @Cleanup ResultSet rs = preparedStatement.executeQuery();
             List<Object> objects = new ArrayList<>();
             while (rs.next()) {
-                objects.add(rs.getObject(column));
+                objects.add(rs.getObject(1));
             }
             return objects;
         } catch (SQLException e) {
@@ -183,6 +188,10 @@ public class DslContext {
                 // default behaviour if normal column
                 Object columnValue = rs.getObject(column.getColumnName());
                 column.getSetMethod().invoke(o, columnValue);
+                // Cache Object reference immediately after primary key is set if foreignKey or virtual columns reference same object
+                if (column.isPrimaryKey()) {
+                    CACHE.get().setEntity(entity, o);
+                }
             }
         } catch (InvocationTargetException | IllegalAccessException e) {
             log.error("An error happened while invoking the get/set method for {} {}", entity, column, e);
@@ -202,7 +211,11 @@ public class DslContext {
      */
     private void mapForeignKeyColumn(ResultSet rs, Object o, Field column) throws SQLException, IllegalAccessException, InvocationTargetException {
         Object id = rs.getObject(column.getColumnName());
-        if (column.isLazy()) {
+        Optional<?> cachedEntity = CACHE.get().getEntityWithId(column.getType(), id);
+
+        if (cachedEntity.isPresent()) {
+            column.getSetMethod().invoke(o, cachedEntity.get());
+        } else if (column.isLazy()) {
             var lazyColumnValue = createLazyProxy(column.getType(), () -> findById(column.getType(), id).orElseThrow());
             column.getSetMethod().invoke(o, lazyColumnValue);
         } else {
@@ -225,13 +238,24 @@ public class DslContext {
         Class<?> joinType = column.getSubType();
         String fkColumnName = column.getColumnName();
         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
+        Optional<? extends List<?>> cachedEntities;
         Supplier<?> joinQuery;
+
         if (column.isManyToMany()) {
+            cachedEntities = null;
             joinQuery = mapManyToManyJoinColumn(column, joinType, fkColumnName, id);
         } else {
-            joinQuery = () -> findBy(joinType, Query.where().equals(fkColumnName, id));
+            Entity joinEntity = getEntityForClass(joinType);
+            String query = String.format("SELECT %s FROM %s where %s = ?", joinEntity.getPrimaryKeyField().getColumnName(), joinEntity.getTableName(), column.getColumnName());
+            List<Object> joinIds = selectIds(query, id);
+
+            cachedEntities = CACHE.get().getEntitiesWithIds(joinType, joinIds);
+            joinQuery = () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), joinIds));
         }
-        if (column.isLazy()) {
+
+        if (cachedEntities.isPresent()) {
+            column.getSetMethod().invoke(o, cachedEntities.get());
+        } else if (column.isLazy()) {
             Object lazyColumnValue = createLazyProxy(column.getType(), joinQuery);
             column.getSetMethod().invoke(o, lazyColumnValue);
         } else {
@@ -244,7 +268,7 @@ public class DslContext {
         Entity joinEntity = getEntityForClass(joinType);
         String otherColumnName = joinEntity.getVirtualFields().stream().filter(Field::isManyToMany).findFirst().map(Field::getColumnName).orElseThrow();
         String query = String.format("SELECT %s FROM %s WHERE %s = ?", otherColumnName, table, fkColumnName);
-        return () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), selectManyToManyQuery(query, otherColumnName, id)));
+        return () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), selectIds(query, id)));
     }
 
     private Entity getEntityForClass(Class<?> type) {

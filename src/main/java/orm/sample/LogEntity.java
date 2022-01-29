@@ -28,6 +28,6 @@ public class LogEntity {
 
     private String entry;
 
-    @ManyToOne(foreignKeyName = "user_id", lazy = true)
+    @ManyToOne(foreignKeyName = "user_id")
     private UserEntity user;
 }

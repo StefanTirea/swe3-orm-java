@@ -1,6 +1,7 @@
 package orm.meta;
 
 import lombok.Getter;
+import lombok.ToString;
 import orm.annotation.IgnoreColumn;
 import orm.annotation.Table;
 
@@ -27,6 +28,7 @@ class Entity {
         this.allFields = Arrays.stream(type.getDeclaredFields())
                 .filter(it -> !it.isAnnotationPresent(IgnoreColumn.class))
                 .map(field -> new Field(field, this))
+                .sorted((o1, o2) -> Boolean.compare(o2.isPrimaryKey(), o1.isPrimaryKey()))
                 .collect(Collectors.toList());
         this.columnFields = allFields.stream()
                 .filter(field -> !(field.isPrimaryKey() || field.isVirtualColumn()))
@@ -55,5 +57,10 @@ class Entity {
         if (!type.isAnnotationPresent(Table.class)) {
             throw new IllegalArgumentException("Table");
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s[tableName=%s, type=%s]", this.getClass(), tableName, type);
     }
 }

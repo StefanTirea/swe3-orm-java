@@ -13,10 +13,10 @@ import java.util.List;
 @NoArgsConstructor
 public class Student {
 
+    private String firstname;
     @Id
     private Long id;
-    private String firstname;
 
-    @ManyToMany(tableName = "student_courses", foreignKeyName = "s_id", lazy = false)
+    @ManyToMany(tableName = "student_courses", foreignKeyName = "s_id", lazy = true)
     private List<Course> courses;
 }

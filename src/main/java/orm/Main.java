@@ -4,6 +4,7 @@ import lombok.SneakyThrows;
 import orm.connection.ConnectionConfig;
 import orm.meta.DslContext;
 import orm.meta.Query;
+import orm.sample.Course;
 import orm.sample.DatabaseConfig;
 import orm.sample.LogEntity;
 import orm.sample.Student;
@@ -15,12 +16,19 @@ import java.util.Optional;
 public class Main {
 
     /*
-    TODO: Join Table loop: both tables have onetomany/manyToOne
-            Caching per Thread
-            Where Queries group expression
-            Support use of Optional<?> for ManyToOne
-            Save 1:n & m:n => Find unsaved entities
-            Column nullable not implemented
+    TODO:
+            Insert/Update 1:n & m:n => Find unsaved entities
+            Unit Test
+            Test Application with Spring Boot
+            Caching on Save/Update
+            Transaction
+
+            ✕ Cascading Delete => Must be done via SQL Create Table
+            ✓ Join Table loop: both tables have onetomany/manyToOne
+            ✓ Caching per Thread
+            ✕ Where Queries group expression
+            ✕ Support use of Optional<?> for ManyToOne
+            ✕ Column nullable not implemented
      */
 
     @SneakyThrows
@@ -31,9 +39,12 @@ public class Main {
                 .password(DatabaseConfig.getConfig().getPassword())
                 .build());
 
-        Student byId1 = dslContext.findById(Student.class, 1).orElseThrow();
+        List<LogEntity> id = dslContext.findBy(LogEntity.class, Query.where().in("id", List.of(1, 2, 3)));
 
-        UserEntity userEntity = UserEntity.builder()
+        var byId1 = dslContext.findById(UserEntity.class, 1).orElseThrow().getLogs();
+
+        System.out.println();
+        /*UserEntity userEntity = UserEntity.builder()
                 .id(2L)
                 .firstname("dsasdasaddsa")
                 .lastname("Test new Version")
@@ -57,6 +68,6 @@ public class Main {
 
 
         List<UserEntity> in = dslContext.findBy(UserEntity.class, Query.where()
-                .not().in("firstname", "Stefan", "dsasdasaddsa"));
+                .not().in("firstname", "Stefan", "dsasdasaddsa"));*/
     }
 }
