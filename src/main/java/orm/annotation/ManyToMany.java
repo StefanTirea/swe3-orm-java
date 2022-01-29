@@ -13,9 +13,14 @@ public @interface ManyToMany {
     /**
      * @return foreign key to join on
      */
-    String foreignKey();
+    String foreignKeyName();
+
+    /**
+     * @return table name to join on
+     */
+    String tableName();
 
     boolean nullable() default false;
 
-    boolean lazy() default false;
+    boolean lazy() default true;
 }

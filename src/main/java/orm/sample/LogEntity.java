@@ -2,7 +2,6 @@ package orm.sample;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -29,6 +28,6 @@ public class LogEntity {
 
     private String entry;
 
-    @ManyToOne(value = "user_id", lazy = true)
+    @ManyToOne(foreignKeyName = "user_id", lazy = true)
     private UserEntity user;
 }

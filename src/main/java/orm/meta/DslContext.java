@@ -12,6 +12,7 @@ import orm.connection.ConnectionPool;
 import orm.sample.LazyLoadingInterceptor;
 import orm.sample.LogEntity;
 
+import java.lang.reflect.InvocationTargetException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -55,7 +56,7 @@ public class DslContext {
     public <T> List<T> findBy(Class<T> type, Query query) {
         log.debug("findBy with query {} {}", type, query);
         Entity entity = getEntityForClass(type);
-        Pair<String, List<Object>> whereAndValues = query.build(entity);
+        Pair<String, List<Object>> whereAndValues = query.build();
 
         String columns = entity.getAllFields().stream()
                 .filter(not(Field::isVirtualColumn))
@@ -143,27 +144,7 @@ public class DslContext {
             while (rs.next()) {
                 Object o = entity.getType().getDeclaredConstructor().newInstance();
                 for (Field column : entity.getAllFields()) {
-                    if (column.isForeignKey()) { // handle when column is foreignKey
-                        Object id = rs.getObject(column.getColumnName());
-                        if (column.isLazy()) {
-                            var lazyColumnValue = createLazyProxy(column.getType(), () -> findById(column.getType(), id).orElseThrow());
-                            column.getSetMethod().invoke(o, lazyColumnValue);
-                        } else {
-                            column.getSetMethod().invoke(o, findById(column.getType(), id).orElseThrow());
-                        }
-                    } else if (column.isVirtualColumn()) { // handle when column is used for joining only
-                        Field fkField = getEntityForClass(column.getType()).getFieldByClass(entity.getType());
-                        Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
-                        if (column.isLazy()) {
-                            Object lazyColumnValue = createLazyProxy(fkField.getEntity().getType(), () -> findBy(fkField.getEntity().getType(), Query.where().equals(fkField.getColumnName(), id)));
-                            column.getSetMethod().invoke(o, lazyColumnValue);
-                        } else {
-                            column.getSetMethod().invoke(o, findBy(fkField.getEntity().getType(), Query.where().equals(fkField.getColumnName(), id)));
-                        }
-                    } else { // default behaviour if normal column
-                        Object columnValue = rs.getObject(column.getColumnName());
-                        column.getSetMethod().invoke(o, columnValue);
-                    }
+                    mapColumnForEntity(rs, o, column, entity);
                 }
                 objects.add(o);
             }
@@ -173,6 +154,97 @@ public class DslContext {
             e.printStackTrace();
             throw e;
         }
+    }
+
+    @SneakyThrows
+    private List<Object> selectManyToManyQuery(String query, String column, Object id) {
+        try {
+            @Cleanup PreparedStatement preparedStatement = connection().prepareStatement(query);
+            preparedStatement.setObject(1, id);
+            @Cleanup ResultSet rs = preparedStatement.executeQuery();
+            List<Object> objects = new ArrayList<>();
+            while (rs.next()) {
+                objects.add(rs.getObject(column));
+            }
+            return objects;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    private void mapColumnForEntity(ResultSet rs, Object o, Field column, Entity entity) throws SQLException {
+        try {
+            if (column.isForeignKey()) {
+                mapForeignKeyColumn(rs, o, column);
+            } else if (column.isVirtualColumn()) {
+                mapJoinColumn(rs, o, column, entity);
+            } else {
+                // default behaviour if normal column
+                Object columnValue = rs.getObject(column.getColumnName());
+                column.getSetMethod().invoke(o, columnValue);
+            }
+        } catch (InvocationTargetException | IllegalAccessException e) {
+            log.error("An error happened while invoking the get/set method for {} {}", entity, column, e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Handle when column is foreignKey
+     *
+     * @param rs
+     * @param o
+     * @param column
+     * @throws SQLException
+     * @throws IllegalAccessException
+     * @throws InvocationTargetException
+     */
+    private void mapForeignKeyColumn(ResultSet rs, Object o, Field column) throws SQLException, IllegalAccessException, InvocationTargetException {
+        Object id = rs.getObject(column.getColumnName());
+        if (column.isLazy()) {
+            var lazyColumnValue = createLazyProxy(column.getType(), () -> findById(column.getType(), id).orElseThrow());
+            column.getSetMethod().invoke(o, lazyColumnValue);
+        } else {
+            column.getSetMethod().invoke(o, findById(column.getType(), id).orElseThrow());
+        }
+    }
+
+    /**
+     * Handle when column is used for joining only
+     *
+     * @param rs
+     * @param o
+     * @param column
+     * @param entity
+     * @throws SQLException
+     * @throws IllegalAccessException
+     * @throws InvocationTargetException
+     */
+    private void mapJoinColumn(ResultSet rs, Object o, Field column, Entity entity) throws SQLException, IllegalAccessException, InvocationTargetException {
+        Class<?> joinType = column.getSubType();
+        String fkColumnName = column.getColumnName();
+        Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
+        Supplier<?> joinQuery;
+        if (column.isManyToMany()) {
+            joinQuery = mapManyToManyJoinColumn(column, joinType, fkColumnName, id);
+        } else {
+            joinQuery = () -> findBy(joinType, Query.where().equals(fkColumnName, id));
+        }
+        if (column.isLazy()) {
+            Object lazyColumnValue = createLazyProxy(column.getType(), joinQuery);
+            column.getSetMethod().invoke(o, lazyColumnValue);
+        } else {
+            column.getSetMethod().invoke(o, joinQuery.get());
+        }
+    }
+
+    private Supplier<?> mapManyToManyJoinColumn(Field column, Class<?> joinType, String fkColumnName, Object id) {
+        String table = column.getManyToManyTable();
+        Entity joinEntity = getEntityForClass(joinType);
+        String otherColumnName = joinEntity.getVirtualFields().stream().filter(Field::isManyToMany).findFirst().map(Field::getColumnName).orElseThrow();
+        String query = String.format("SELECT %s FROM %s WHERE %s = ?", otherColumnName, table, fkColumnName);
+        return () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), selectManyToManyQuery(query, otherColumnName, id)));
     }
 
     private Entity getEntityForClass(Class<?> type) {

@@ -10,7 +10,12 @@ import java.lang.annotation.Target;
 @Relation
 public @interface OneToMany {
 
-    Class<?> columnType();
+    /**
+     * @return foreign key to join on
+     */
+    String foreignKeyName();
 
-    boolean lazy() default false;
+    boolean nullable() default false;
+
+    boolean lazy() default true;
 }

@@ -7,15 +7,5 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-@Relation
-public @interface ManyToOne {
-
-    /**
-     * @return foreign key to join on
-     */
-    String foreignKeyName();
-
-    boolean nullable() default false;
-
-    boolean lazy() default true;
+public @interface IgnoreColumn {
 }

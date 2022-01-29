@@ -4,49 +4,54 @@ import lombok.Getter;
 import lombok.SneakyThrows;
 import orm.annotation.Column;
 import orm.annotation.Id;
+import orm.annotation.ManyToMany;
 import orm.annotation.ManyToOne;
 import orm.annotation.OneToMany;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Optional;
-
-import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 @Getter
 class Field {
 
     private final String columnName;
-    private final Class<?> type;
     private final Entity entity;
-
     private final boolean primaryKey;
     private final boolean foreignKey;
     /**
-     * Column does not exist and is used solely for joins
+     * Column does not exist in DB Table and is used solely for automatic joins
      */
     private final boolean virtualColumn;
+    private final boolean oneToMany;
+    private final boolean manyToMany;
+    private final String manyToManyTable;
     private final boolean nullable;
     private final boolean lazy;
-
+    private Class<?> type;
+    private Class<?> subType;
     private Method method;
     private Method setMethod;
 
     @SneakyThrows
     public Field(java.lang.reflect.Field field, Entity entity) {
         this.entity = entity;
-        this.columnName = field.isAnnotationPresent(ManyToOne.class) && isNotBlank(field.getAnnotation(ManyToOne.class).value())
-                ? field.getAnnotation(ManyToOne.class).value()
-                : field.getName();
-        this.type = field.isAnnotationPresent(OneToMany.class) ? field.getAnnotation(OneToMany.class).columnType() : field.getType();
+        this.columnName = mapColumnName(field);
+        mapFieldTypes(field);
         mapMethods(field, entity);
         this.primaryKey = field.isAnnotationPresent(Id.class);
         this.foreignKey = field.isAnnotationPresent(ManyToOne.class);
-        this.virtualColumn = field.isAnnotationPresent(OneToMany.class);
+        this.virtualColumn = isOneToManyOrManyToMany(field);
+        this.oneToMany = field.isAnnotationPresent(OneToMany.class);
+        this.manyToMany = field.isAnnotationPresent(ManyToMany.class);
+        this.manyToManyTable = getAnnotation(field, ManyToMany.class).map(ManyToMany::tableName).orElse(null);
         this.nullable = mapNullable(field);
         this.lazy = getAnnotation(field, ManyToOne.class).map(ManyToOne::lazy).orElse(false)
-                || getAnnotation(field, OneToMany.class).map(OneToMany::lazy).orElse(false);
+                || getAnnotation(field, OneToMany.class).map(OneToMany::lazy).orElse(false)
+                || getAnnotation(field, ManyToMany.class).map(ManyToMany::lazy).orElse(false);
     }
 
     /**
@@ -59,6 +64,34 @@ class Field {
         return isForeignKey()
                 ? new Entity(getType()).getPrimaryKeyField().getMethod().invoke(columnValue)
                 : columnValue;
+    }
+
+    private String mapColumnName(java.lang.reflect.Field field) {
+        if (field.isAnnotationPresent(OneToMany.class)) {
+            return field.getAnnotation(OneToMany.class).foreignKeyName();
+        } else if (field.isAnnotationPresent(ManyToOne.class)) {
+            return field.getAnnotation(ManyToOne.class).foreignKeyName();
+        } else if (field.isAnnotationPresent(ManyToMany.class)) {
+            return field.getAnnotation(ManyToMany.class).foreignKeyName();
+        } else {
+            return field.getName();
+        }
+    }
+
+    /**
+     * Maps the Entity column type.
+     * <p>
+     * If column is either {@link OneToMany} or {@link ManyToMany} then the generic subtype is mapped instead.
+     * This is required because the actual type will always be {@link Collection}.
+     *
+     * @param field of Entity column
+     */
+    private void mapFieldTypes(java.lang.reflect.Field field) {
+        this.type = field.getType();
+        if (isOneToManyOrManyToMany(field) && Arrays.asList(type.getInterfaces()).contains(Collection.class)) {
+            ParameterizedType genericType = (ParameterizedType) field.getGenericType();
+            this.subType = (Class<?>) genericType.getActualTypeArguments()[0];
+        }
     }
 
     private void mapMethods(java.lang.reflect.Field field, Entity entity) {
@@ -74,6 +107,10 @@ class Field {
         if (method == null || setMethod == null) {
             throw new IllegalStateException(String.format("get or set Method not found for %s %s", entity, field));
         }
+    }
+
+    private boolean isOneToManyOrManyToMany(java.lang.reflect.Field field) {
+        return field.isAnnotationPresent(OneToMany.class) || field.isAnnotationPresent(ManyToMany.class);
     }
 
     private boolean mapNullable(java.lang.reflect.Field field) {

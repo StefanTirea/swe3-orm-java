@@ -17,6 +17,8 @@ public class Query {
     private final List<Pair<String, Object>> where = new ArrayList<>();
     private final List<Expression> expressions = new ArrayList<>();
 
+    // TODO Implement LIMIT
+
     public static Expression where() {
         Query query = new Query();
         Expression expression = Expression.builder()
@@ -44,8 +46,8 @@ public class Query {
         return expression;
     }
 
-    protected Pair<String, List<Object>> build(Entity entity) {
-        // optional TODO validate if column name + type is valid
+    protected Pair<String, List<Object>> build() {
+        // optional TODO validate if column name + type is valid with entity var
         String sqlQuery = (expressions.isEmpty() ? "" : "WHERE") + expressions.stream()
                 .map(this::mapWhereQuery)
                 .collect(Collectors.joining());

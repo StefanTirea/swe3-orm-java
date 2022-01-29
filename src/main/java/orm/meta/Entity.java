@@ -1,6 +1,7 @@
 package orm.meta;
 
 import lombok.Getter;
+import orm.annotation.IgnoreColumn;
 import orm.annotation.Table;
 
 import java.util.Arrays;
@@ -24,6 +25,7 @@ class Entity {
         this.type = type;
 
         this.allFields = Arrays.stream(type.getDeclaredFields())
+                .filter(it -> !it.isAnnotationPresent(IgnoreColumn.class))
                 .map(field -> new Field(field, this))
                 .collect(Collectors.toList());
         this.columnFields = allFields.stream()
