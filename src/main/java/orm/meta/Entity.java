@@ -2,7 +2,7 @@ package orm.meta;
 
 import lombok.Getter;
 import org.apache.commons.lang3.ArrayUtils;
-import orm.annotation.IgnoreColumn;
+import orm.annotation.Ignore;
 import orm.annotation.SubEntity;
 import orm.annotation.Table;
 
@@ -31,7 +31,7 @@ class Entity {
             fields = ArrayUtils.addAll(fields, type.getSuperclass().getDeclaredFields());
         }
         this.allFields = Arrays.stream(fields)
-                .filter(it -> !it.isAnnotationPresent(IgnoreColumn.class))
+                .filter(it -> !it.isAnnotationPresent(Ignore.class))
                 .map(field -> new Field(field, this))
                 .sorted((o1, o2) -> Boolean.compare(o2.isPrimaryKey(), o1.isPrimaryKey()))
                 .collect(Collectors.toList());

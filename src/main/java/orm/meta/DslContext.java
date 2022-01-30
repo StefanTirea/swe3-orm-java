@@ -11,7 +11,6 @@ import org.postgresql.jdbc.PgArray;
 import orm.annotation.Table;
 import orm.connection.ConnectionConfig;
 import orm.connection.ConnectionPool;
-import orm.sample.entity.Teacher;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -390,13 +389,13 @@ public class DslContext {
                 .method(ElementMatchers.any())
                 .intercept(MethodDelegation.to(new LazyLoadingInterceptor(lazySupplier)))
                 .make()
-                .load(Teacher.class.getClassLoader())
+                .load(Object.class.getClassLoader())
                 .getLoaded()
                 .getConstructor().newInstance();
     }
 
     @SneakyThrows
-    private Object invoke(Method method, Object o, Object ...args) {
+    private Object invoke(Method method, Object o, Object... args) {
         return method.invoke(o, args);
     }
 }
