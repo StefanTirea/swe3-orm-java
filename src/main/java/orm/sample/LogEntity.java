@@ -19,7 +19,7 @@ import orm.annotation.Table;
 @AllArgsConstructor
 @ToString
 @EqualsAndHashCode
-@Builder
+@Builder(toBuilder = true)
 public class LogEntity {
 
     @Id

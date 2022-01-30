@@ -3,15 +3,9 @@ package orm;
 import lombok.SneakyThrows;
 import orm.connection.ConnectionConfig;
 import orm.meta.DslContext;
-import orm.meta.Query;
-import orm.sample.Course;
 import orm.sample.DatabaseConfig;
 import orm.sample.LogEntity;
-import orm.sample.Student;
 import orm.sample.UserEntity;
-
-import java.util.List;
-import java.util.Optional;
 
 public class Main {
 
@@ -39,9 +33,19 @@ public class Main {
                 .password(DatabaseConfig.getConfig().getPassword())
                 .build());
 
-        List<LogEntity> id = dslContext.findBy(LogEntity.class, Query.where().in("id", List.of(1, 2, 3)));
+        var byId1 = dslContext.findById(UserEntity.class, 1).orElseThrow();
 
-        var byId1 = dslContext.findById(UserEntity.class, 1).orElseThrow().getLogs();
+        byId1.setAge(87);
+        byId1 = byId1.toBuilder()
+                .log(LogEntity.builder()
+                        .entry("new Entry cascade save")
+                        .user(byId1)
+                        .build())
+                .build();
+        //byId1.getLogs().get(0).setEntry("cascade update working!");
+
+        // Cache und diese Entity haben selbe reference im cache
+        dslContext.save(byId1);
 
         System.out.println();
         /*UserEntity userEntity = UserEntity.builder()

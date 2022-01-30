@@ -4,10 +4,11 @@ import lombok.Cleanup;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.bytebuddy.ByteBuddy;
-import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.matcher.ElementMatchers;
+import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import orm.annotation.Table;
 import orm.connection.ConnectionConfig;
 import orm.connection.ConnectionPool;
 import orm.sample.LazyLoadingInterceptor;
@@ -20,7 +21,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -29,15 +29,15 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
+import static java.util.Collections.emptyList;
 import static java.util.function.Predicate.not;
 
 @Slf4j
 public class DslContext {
 
+    static final Map<Class<?>, Entity> TABLES = Collections.synchronizedMap(new HashMap<>());
     private static final ThreadLocal<Cache> CACHE = ThreadLocal.withInitial(Cache::new);
-    private final Map<Class<?>, Entity> TABLES = Collections.synchronizedMap(new HashMap<>());
     private final ConnectionPool connectionPool;
 
     public DslContext(ConnectionConfig config) {
@@ -75,25 +75,87 @@ public class DslContext {
 
     @SneakyThrows
     @SuppressWarnings("unchecked")
-    public <T> Optional<T> save(T object) {
+    public Object save(Object object) {
         Entity entity = getEntityForObject(object);
         Object id = entity.getPrimaryKeyField().getMethod().invoke(object) == null
                 ? insert(entity, object)
                 : update(entity, object);
-        return Optional.ofNullable(id).flatMap(it -> findById(entity.getType(), it)).map(it -> (T) it);
+        if (id != null) {
+            // TODO make new copy with ID and retun this object instead
+            entity.getPrimaryKeyField().getSetMethod().invoke(object, id);
+            CACHE.get().setEntity(entity, object);
+        }
+        return id;
     }
 
     @SneakyThrows
     private Object update(Entity entity, Object object) {
-        String columns = entity.getColumnFields().stream()
+        recursiveUpdate(object, emptyList());
+
+        List<Field> changedColumns = CACHE.get().getChangedEntityColumns(object);
+        if (changedColumns.isEmpty()) {
+            if (log.isTraceEnabled()) {
+                log.trace("Update Entity {} with value {} has no changes", entity.getType(), object);
+            }
+            return entity.getPrimaryKeyField().getColumnValue(object);
+        }
+
+        List<Object> values = ListUtils.union(changedColumns.stream().map(it -> it.getColumnValue(object)).toList(),
+                List.of(entity.getPrimaryKeyField().getColumnValue(object)));
+        if (log.isDebugEnabled()) {
+            log.debug("Changes detected for Entity {} with new values {}", entity.getType(), values);
+        }
+        String columns = changedColumns.stream()
                 .map(field -> field.getColumnName() + " = ?")
                 .collect(Collectors.joining(","));
 
         String updateQuery = String.format("UPDATE %s SET %s WHERE %s = ?", entity.getTableName(), columns, entity.getPrimaryKeyField().getColumnName());
 
-        return executePreparedStatement(Stream.of(entity.getColumnValues(object), List.of(entity.getPrimaryKeyField().getMethod().invoke(object)))
-                .flatMap(Collection::stream)
-                .toList(), updateQuery);
+        return executePreparedStatement(values, updateQuery);
+    }
+
+    private void recursiveUpdate(Object object, List<Pair<Class<?>, Object>> ignoreObjects) {
+        Entity entity = getEntityForObject(object);
+        List<Pair<Class<?>, Object>> newIgnoreObjects = new ArrayList<>(ignoreObjects);
+        newIgnoreObjects.add(Pair.of(entity.getType(), entity.getPrimaryKeyField().getColumnValue(object)));
+
+        entity.getForeignKeys().stream()
+                .map(it -> it.invokeGetMethod(object))
+                .filter(it -> ignoreObjects.stream().anyMatch(pair -> (pair.getLeft().equals(it.getClass()) || pair.getLeft().equals(it.getClass().getSuperclass())) && entity.getPrimaryKeyField().getColumnValue(it).equals(pair.getRight())))
+                .forEach(it -> recursiveUpdate(it, newIgnoreObjects));
+
+        entity.getVirtualFields().stream()
+                .flatMap(it -> ((List<?>) it.invokeGetMethod(object)).stream())
+                .filter(it -> ignoreObjects.stream().noneMatch(pair -> (pair.getLeft().equals(it.getClass()) || pair.getLeft().equals(it.getClass().getSuperclass())) && entity.getPrimaryKeyField().getColumnValue(it).equals(pair.getRight())))
+                .forEach(it -> recursiveUpdate(it, newIgnoreObjects));
+
+        // do update for other normal columns
+        // saveWithoutDependencies()
+        updateWithoutDependencies(entity, object);
+    }
+
+    @SneakyThrows
+    private void updateWithoutDependencies(Entity entity, Object object) {
+        List<Field> changedColumns = CACHE.get().getChangedEntityColumns(object);
+        if (changedColumns.isEmpty()) {
+            if (log.isTraceEnabled()) {
+                log.trace("Update Entity {} with value {} has no changes", entity.getType(), object);
+            }
+            return;
+        }
+
+        List<Object> values = ListUtils.union(changedColumns.stream().map(it -> it.getColumnValue(object)).toList(),
+                List.of(entity.getPrimaryKeyField().getColumnValue(object)));
+        if (log.isDebugEnabled()) {
+            log.debug("Changes detected for Entity {} with new values {}", entity.getType(), values);
+        }
+        String columns = changedColumns.stream()
+                .map(field -> field.getColumnName() + " = ?")
+                .collect(Collectors.joining(","));
+
+        String updateQuery = String.format("UPDATE %s SET %s WHERE %s = ?", entity.getTableName(), columns, entity.getPrimaryKeyField().getColumnName());
+
+        executePreparedStatement(values, updateQuery);
     }
 
     @SneakyThrows
@@ -152,6 +214,7 @@ public class DslContext {
                     mapColumnForEntity(rs, o, column, entity);
                 }
                 objects.add(o);
+                CACHE.get().setEntity(entity, o);
             }
             connection().commit();
             return objects;
@@ -214,7 +277,7 @@ public class DslContext {
         Optional<?> cachedEntity = CACHE.get().getEntityWithId(column.getType(), id);
 
         if (cachedEntity.isPresent()) {
-            column.getSetMethod().invoke(o, cachedEntity.get());
+            column.getSetMethod().invoke(o, createLazyProxy(column.getType(), () -> CACHE.get().getEntityWithId(column.getType(), id).orElseThrow()));
         } else if (column.isLazy()) {
             var lazyColumnValue = createLazyProxy(column.getType(), () -> findById(column.getType(), id).orElseThrow());
             column.getSetMethod().invoke(o, lazyColumnValue);
@@ -238,23 +301,29 @@ public class DslContext {
         Class<?> joinType = column.getSubType();
         String fkColumnName = column.getColumnName();
         Object id = rs.getObject(entity.getPrimaryKeyField().getColumnName());
+        Entity joinEntity = getEntityForClass(joinType);
+        String joinEntityPkColumnName = joinEntity.getPrimaryKeyField().getColumnName();
+
         Optional<? extends List<?>> cachedEntities;
         Supplier<?> joinQuery;
+        List<Object> joinIds;
 
+        // Check Cache and create Supplier for Join Select for ManyToMany or OneToMany
         if (column.isManyToMany()) {
-            cachedEntities = null;
-            joinQuery = mapManyToManyJoinColumn(column, joinType, fkColumnName, id);
+            joinIds = getJoinIdsForManyToManyColumn(column, joinType, fkColumnName, id);
+            cachedEntities = CACHE.get().getEntitiesWithIds(joinType, joinIds);
+            joinQuery = () -> findBy(joinType, Query.where().in(joinEntityPkColumnName, joinIds));
         } else {
-            Entity joinEntity = getEntityForClass(joinType);
-            String query = String.format("SELECT %s FROM %s where %s = ?", joinEntity.getPrimaryKeyField().getColumnName(), joinEntity.getTableName(), column.getColumnName());
-            List<Object> joinIds = selectIds(query, id);
+            String query = String.format("SELECT %s FROM %s where %s = ?", joinEntityPkColumnName, joinEntity.getTableName(), fkColumnName);
+            joinIds = selectIds(query, id);
 
             cachedEntities = CACHE.get().getEntitiesWithIds(joinType, joinIds);
-            joinQuery = () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), joinIds));
+            joinQuery = () -> findBy(joinType, Query.where().in(joinEntityPkColumnName, joinIds));
         }
 
+        // If cached is present then use otherwise check if lazy or eager
         if (cachedEntities.isPresent()) {
-            column.getSetMethod().invoke(o, cachedEntities.get());
+            column.getSetMethod().invoke(o, createLazyProxy(column.getType(), () -> CACHE.get().getEntitiesWithIds(joinType, joinIds).orElseThrow()));
         } else if (column.isLazy()) {
             Object lazyColumnValue = createLazyProxy(column.getType(), joinQuery);
             column.getSetMethod().invoke(o, lazyColumnValue);
@@ -263,21 +332,30 @@ public class DslContext {
         }
     }
 
-    private Supplier<?> mapManyToManyJoinColumn(Field column, Class<?> joinType, String fkColumnName, Object id) {
+    private List<Object> getJoinIdsForManyToManyColumn(Field column, Class<?> joinType, String fkColumnName, Object id) {
         String table = column.getManyToManyTable();
         Entity joinEntity = getEntityForClass(joinType);
-        String otherColumnName = joinEntity.getVirtualFields().stream().filter(Field::isManyToMany).findFirst().map(Field::getColumnName).orElseThrow();
-        String query = String.format("SELECT %s FROM %s WHERE %s = ?", otherColumnName, table, fkColumnName);
-        return () -> findBy(joinType, Query.where().in(joinEntity.getPrimaryKeyField().getColumnName(), selectIds(query, id)));
+        String fkJoinEntityColumnName = joinEntity.getVirtualFields().stream()
+                .filter(it -> it.isManyToMany() && it.getSubType().equals(column.getEntity().getType()))
+                .findFirst()
+                .map(Field::getColumnName)
+                .orElseThrow(() -> new RuntimeException("ManyToMany ForeignKey is not set in Entity " + joinEntity.getType()));
+
+        String query = String.format("SELECT %s FROM %s WHERE %s = ?", fkJoinEntityColumnName, table, fkColumnName);
+        return selectIds(query, id);
     }
 
     private Entity getEntityForClass(Class<?> type) {
+        Class<?> realType = type;
         if (type == null) {
             throw new IllegalArgumentException();
-        } else if (!TABLES.containsKey(type)) {
-            TABLES.put(type, new Entity(type));
+        } else if (!type.isAnnotationPresent(Table.class)) {
+            realType = type.getSuperclass();
         }
-        return TABLES.get(type);
+        if (!TABLES.containsKey(realType)) {
+            TABLES.put(realType, new Entity(realType));
+        }
+        return TABLES.get(realType);
     }
 
     private Entity getEntityForObject(Object o) {

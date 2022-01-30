@@ -7,6 +7,7 @@ import orm.annotation.Id;
 import orm.annotation.ManyToMany;
 import orm.annotation.ManyToOne;
 import orm.annotation.OneToMany;
+import orm.sample.LazyLoadingInterceptor;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -26,7 +27,6 @@ class Field {
      * Column does not exist in DB Table and is used solely for automatic joins
      */
     private final boolean virtualColumn;
-    private final boolean oneToMany;
     private final boolean manyToMany;
     private final String manyToManyTable;
     private final boolean nullable;
@@ -45,7 +45,6 @@ class Field {
         this.primaryKey = field.isAnnotationPresent(Id.class);
         this.foreignKey = field.isAnnotationPresent(ManyToOne.class);
         this.virtualColumn = isOneToManyOrManyToMany(field);
-        this.oneToMany = field.isAnnotationPresent(OneToMany.class);
         this.manyToMany = field.isAnnotationPresent(ManyToMany.class);
         this.manyToManyTable = getAnnotation(field, ManyToMany.class).map(ManyToMany::tableName).orElse(null);
         this.nullable = mapNullable(field);
@@ -56,7 +55,7 @@ class Field {
 
     /**
      * @param entity Object of a {@link Entity}
-     * @return column of this field and if it is a foreign key object then the primary key value
+     * @return column of this field and if it is a foreign key then the primary key value
      */
     @SneakyThrows
     public Object getColumnValue(Object entity) {
@@ -64,6 +63,11 @@ class Field {
         return isForeignKey()
                 ? new Entity(getType()).getPrimaryKeyField().getMethod().invoke(columnValue)
                 : columnValue;
+    }
+
+    @SneakyThrows
+    public Object invokeGetMethod(Object entity) {
+        return getMethod().invoke(entity);
     }
 
     private String mapColumnName(java.lang.reflect.Field field) {

@@ -1,7 +1,6 @@
 package orm.meta;
 
 import lombok.Getter;
-import lombok.ToString;
 import orm.annotation.IgnoreColumn;
 import orm.annotation.Table;
 
@@ -43,14 +42,13 @@ class Entity {
     public List<Object> getColumnValues(Object o) {
         return columnFields.stream()
                 .map(field -> field.getColumnValue(o))
-                .collect(Collectors.toList());
+                .toList();
     }
 
-    public Field getFieldByClass(Class<?> type) {
-        return allFields.stream()
-                .filter(field -> field.getType().equals(type))
-                .findFirst()
-                .orElseThrow();
+    public List<Field> getForeignKeys() {
+        return getColumnFields().stream()
+                .filter(Field::isForeignKey)
+                .toList();
     }
 
     private void validate(Class<?> type) {
