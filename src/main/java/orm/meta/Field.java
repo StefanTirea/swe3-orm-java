@@ -7,7 +7,6 @@ import orm.annotation.Id;
 import orm.annotation.ManyToMany;
 import orm.annotation.ManyToOne;
 import orm.annotation.OneToMany;
-import orm.sample.LazyLoadingInterceptor;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -47,7 +46,7 @@ class Field {
         this.virtualColumn = isOneToManyOrManyToMany(field);
         this.manyToMany = field.isAnnotationPresent(ManyToMany.class);
         this.manyToManyTable = getAnnotation(field, ManyToMany.class).map(ManyToMany::tableName).orElse(null);
-        this.nullable = mapNullable(field);
+        this.nullable = field.isAnnotationPresent(Column.class) && field.getAnnotation(Column.class).nullable();
         this.lazy = getAnnotation(field, ManyToOne.class).map(ManyToOne::lazy).orElse(false)
                 || getAnnotation(field, OneToMany.class).map(OneToMany::lazy).orElse(false)
                 || getAnnotation(field, ManyToMany.class).map(ManyToMany::lazy).orElse(false);
@@ -77,6 +76,8 @@ class Field {
             return field.getAnnotation(ManyToOne.class).foreignKeyName();
         } else if (field.isAnnotationPresent(ManyToMany.class)) {
             return field.getAnnotation(ManyToMany.class).foreignKeyName();
+        } else if (field.isAnnotationPresent(Column.class)) {
+            return field.getAnnotation(Column.class).name();
         } else {
             return field.getName();
         }
@@ -101,7 +102,8 @@ class Field {
     private void mapMethods(java.lang.reflect.Field field, Entity entity) {
         Arrays.stream(entity.getType().getDeclaredMethods())
                 .forEach(method -> {
-                    if (method.getName().equalsIgnoreCase("get" + field.getName())) {
+                    if (method.getName().equalsIgnoreCase("get" + field.getName())
+                            || method.getName().equalsIgnoreCase("is" + field.getName())) {
                         this.method = method;
                     }
                     if (method.getName().equalsIgnoreCase("set" + field.getName())) {
@@ -115,11 +117,6 @@ class Field {
 
     private boolean isOneToManyOrManyToMany(java.lang.reflect.Field field) {
         return field.isAnnotationPresent(OneToMany.class) || field.isAnnotationPresent(ManyToMany.class);
-    }
-
-    private boolean mapNullable(java.lang.reflect.Field field) {
-        return (field.isAnnotationPresent(Column.class) && field.getAnnotation(Column.class).nullable())
-                || (field.isAnnotationPresent(ManyToOne.class) && field.getAnnotation(ManyToOne.class).nullable());
     }
 
     private <T extends Annotation> Optional<T> getAnnotation(java.lang.reflect.Field field, Class<T> annotationClass) {

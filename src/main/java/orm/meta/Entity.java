@@ -1,7 +1,9 @@
 package orm.meta;
 
 import lombok.Getter;
+import org.apache.commons.lang3.ArrayUtils;
 import orm.annotation.IgnoreColumn;
+import orm.annotation.SubEntity;
 import orm.annotation.Table;
 
 import java.util.Arrays;
@@ -24,7 +26,11 @@ class Entity {
         this.tableName = type.getAnnotation(Table.class).value();
         this.type = type;
 
-        this.allFields = Arrays.stream(type.getDeclaredFields())
+        java.lang.reflect.Field[] fields = type.getDeclaredFields();
+        if (type.getSuperclass().isAnnotationPresent(SubEntity.class)) {
+            fields = ArrayUtils.addAll(fields, type.getSuperclass().getDeclaredFields());
+        }
+        this.allFields = Arrays.stream(fields)
                 .filter(it -> !it.isAnnotationPresent(IgnoreColumn.class))
                 .map(field -> new Field(field, this))
                 .sorted((o1, o2) -> Boolean.compare(o2.isPrimaryKey(), o1.isPrimaryKey()))

@@ -7,30 +7,33 @@ import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.matcher.ElementMatchers;
 import org.apache.commons.collections4.ListUtils;
-import org.apache.commons.lang3.tuple.Pair;
+import org.postgresql.jdbc.PgArray;
 import orm.annotation.Table;
 import orm.connection.ConnectionConfig;
 import orm.connection.ConnectionPool;
-import orm.sample.LazyLoadingInterceptor;
-import orm.sample.LogEntity;
+import orm.sample.entity.Teacher;
 
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static java.util.Collections.emptyList;
 import static java.util.function.Predicate.not;
 
 @Slf4j
@@ -61,25 +64,51 @@ public class DslContext {
     public <T> List<T> findBy(Class<T> type, Query query) {
         log.debug("findBy with query {} {}", type, query);
         Entity entity = getEntityForClass(type);
-        Pair<String, List<Object>> whereAndValues = query.build();
+        QueryResult whereAndValues = Optional.ofNullable(query).map(Query::build).orElse(QueryResult.empty());
 
         String columns = entity.getAllFields().stream()
                 .filter(not(Field::isVirtualColumn))
                 .map(Field::getColumnName)
                 .collect(Collectors.joining(","));
 
-        String selectQuery = String.format("SELECT %s FROM %s %s", columns, entity.getTableName(), whereAndValues.getLeft());
+        String selectQuery = String.format("SELECT %s FROM %s %s", columns, entity.getTableName(), whereAndValues.getWhereQuery());
 
-        return (List<T>) mapObjectsFromResultSet(entity, whereAndValues.getRight(), selectQuery);
+        return (List<T>) mapObjectsFromResultSet(entity, whereAndValues.getValues(), selectQuery);
     }
 
     @SneakyThrows
+    public <T> boolean delete(T entityValue) {
+        Entity entity = getEntityForObject(entityValue);
+        Object id = entity.getPrimaryKeyField().getColumnValue(entityValue);
+
+        if (id == null) {
+            return false;
+        }
+        String insertQuery = String.format("DELETE FROM %s WHERE %s = ?", entity.getTableName(), entity.getPrimaryKeyField().getColumnName());
+
+        return executePreparedStatement(List.of(id), insertQuery) != null;
+    }
+
     @SuppressWarnings("unchecked")
+    public <T> List<T> findAll(Class<T> type) {
+        return findBy(type, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> boolean deleteAll(List<T> entityValues) {
+        return entityValues.stream().allMatch(this::delete);
+    }
+
     public Object save(Object object) {
+        return save(object, true);
+    }
+
+    @SneakyThrows
+    private Object save(Object object, boolean checkDependencies) {
         Entity entity = getEntityForObject(object);
         Object id = entity.getPrimaryKeyField().getMethod().invoke(object) == null
-                ? insert(entity, object)
-                : update(entity, object);
+                ? insert(entity, object, true)
+                : update(entity, object, checkDependencies);
         if (id != null) {
             // TODO make new copy with ID and retun this object instead
             entity.getPrimaryKeyField().getSetMethod().invoke(object, id);
@@ -89,7 +118,8 @@ public class DslContext {
     }
 
     @SneakyThrows
-    private Object update(Entity entity, Object object) {
+    private Object update(Entity entity, Object object, boolean checkDependencies) {
+        checkDependencies(entity, object, checkDependencies);
         List<Field> changedColumns = CACHE.get().getChangedEntityColumns(object);
         if (changedColumns.isEmpty()) {
             if (log.isTraceEnabled()) {
@@ -113,7 +143,8 @@ public class DslContext {
     }
 
     @SneakyThrows
-    private Object insert(Entity entity, Object object) {
+    private Object insert(Entity entity, Object object, boolean checkDependencies) {
+        checkDependencies(entity, object, checkDependencies);
         String columns = entity.getColumnFields().stream()
                 .map(Field::getColumnName)
                 .collect(Collectors.joining(","));
@@ -124,6 +155,20 @@ public class DslContext {
         String insertQuery = String.format("INSERT INTO %s (%s) VALUES (%s)", entity.getTableName(), columns, prepareColumns);
 
         return executePreparedStatement(entity.getColumnValues(object), insertQuery);
+    }
+
+    private void checkDependencies(Entity entity, Object object, boolean checkDependencies) {
+        if (checkDependencies) {
+            entity.getForeignKeys().stream()
+                    .map(it -> it.invokeGetMethod(object))
+                    .forEach(it -> save(it, false));
+
+            entity.getVirtualFields().stream()
+                    .map(it -> ((List<?>) it.invokeGetMethod(object)))
+                    .filter(Objects::nonNull)
+                    .flatMap(Collection::stream)
+                    .forEach(it -> save(it, false));
+        }
     }
 
     /**
@@ -204,7 +249,7 @@ public class DslContext {
             } else {
                 // default behaviour if normal column
                 Object columnValue = rs.getObject(column.getColumnName());
-                column.getSetMethod().invoke(o, columnValue);
+                column.getSetMethod().invoke(o, convertObject(columnValue));
                 // Cache Object reference immediately after primary key is set if foreignKey or virtual columns reference same object
                 if (column.isPrimaryKey()) {
                     CACHE.get().setEntity(entity, o);
@@ -214,6 +259,21 @@ public class DslContext {
             log.error("An error happened while invoking the get/set method for {} {}", entity, column, e);
             throw new RuntimeException(e);
         }
+    }
+
+    @SneakyThrows
+    private Object convertObject(Object columnValue) {
+        if (columnValue == null) {
+            return columnValue;
+        }
+        if (columnValue instanceof PgArray) {
+            return ((PgArray) columnValue).getArray();
+        } else if (columnValue instanceof Timestamp) {
+            return ((Timestamp) columnValue).toLocalDateTime();
+        } else if (columnValue instanceof Date) {
+            return ((Date) columnValue).toLocalDate();
+        }
+        return columnValue;
     }
 
     /**
@@ -330,8 +390,13 @@ public class DslContext {
                 .method(ElementMatchers.any())
                 .intercept(MethodDelegation.to(new LazyLoadingInterceptor(lazySupplier)))
                 .make()
-                .load(LogEntity.class.getClassLoader())
+                .load(Teacher.class.getClassLoader())
                 .getLoaded()
                 .getConstructor().newInstance();
+    }
+
+    @SneakyThrows
+    private Object invoke(Method method, Object o, Object ...args) {
+        return method.invoke(o, args);
     }
 }

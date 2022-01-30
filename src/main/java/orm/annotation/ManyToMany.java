@@ -7,7 +7,6 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-@Relation
 public @interface ManyToMany {
 
     /**
@@ -19,8 +18,6 @@ public @interface ManyToMany {
      * @return table name to join on
      */
     String tableName();
-
-    boolean nullable() default false;
 
     boolean lazy() default true;
 }

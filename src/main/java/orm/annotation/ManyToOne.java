@@ -5,17 +5,17 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+/**
+ * {@link ManyToOne} is used on the entity were the foreignKey is actually located
+ */
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.RUNTIME)
-@Relation
 public @interface ManyToOne {
 
     /**
      * @return foreign key to join on
      */
     String foreignKeyName();
-
-    boolean nullable() default false;
 
     boolean lazy() default true;
 }

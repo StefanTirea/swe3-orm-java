@@ -7,6 +7,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -46,7 +47,7 @@ public class Query {
         return expression;
     }
 
-    protected Pair<String, List<Object>> build() {
+    protected QueryResult build() {
         // optional TODO validate if column name + type is valid with entity var
         String sqlQuery = (expressions.isEmpty() ? "" : "WHERE") + expressions.stream()
                 .map(this::mapWhereQuery)
@@ -56,7 +57,7 @@ public class Query {
                         ? ((List<?>) it.getValue()).stream()
                         : Stream.of(it.getValue()))
                 .toList();
-        return Pair.of(sqlQuery, values);
+        return QueryResult.builder().whereQuery(sqlQuery).values(values).build();
     }
 
     private String mapWhereQuery(Expression it) {

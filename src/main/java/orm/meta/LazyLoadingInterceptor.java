@@ -1,4 +1,4 @@
-package orm.sample;
+package orm.meta;
 
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
