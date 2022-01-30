@@ -6,14 +6,15 @@ This project is a sample implementation of an OR-Mapper from scratch. It is a **
 to create a meta modell in the background.
 
 ## Table of Contents
+
 * [Quick Start](#quick-start)
 * [Features](#features)
 * [API](#api)
-  + [Entity](#entity)
-  + [Database API](#database-api)
-  + [Caching + Entity Tracking](#caching---entity-tracking)
+    + [Entity](#entity)
+    + [Database API](#database-api)
+    + [Querying](#querying)
+    + [Caching + Entity Tracking](#caching---entity-tracking)
 * [Install](#install)
-
 
 ## Quick Start
 
@@ -79,6 +80,8 @@ class Sample {
     * No wrapper around objects required
     * Used on default for best performance
         * Can be disabled
+* **Database Support**
+    * Currently **only** PostgreSQL
 
 ## API
 
@@ -154,9 +157,33 @@ The Database API `DslContext` can be instantiated with `connectionConfig` e.g. `
 | `delete`      | `T entity`                   | `boolean`     | returns `true` if the delete was successful   |
 | `deleteAll`   | `List<T> entities`           | `boolean`     | returns `true` if all deletes were successful |
 
-An example application is located in the `demo-orm` folder. Getting started instructions below.
+### Querying
+
+Supports `NOT`,`OR`,`AND`,`=`,`LIKE`,`IN`,`>`,`>=`,`<`,`<=` as Java Fluent API. However, currently no support for grouping or brackets.
+
+````java
+class Examples {
+
+    public static void main(String[] args) {
+        // Example 1
+        Query.where()
+                .like("name", "%ifferent")
+                .and()
+                .greaterThan("age", 20);
+
+        // Example 2
+        Query.where()
+                .in("name", "Stefan", "Max", "Maxine")
+                .or()
+                .not().equals("name", "test");
+    }
+}
+````
+
+An example application is located in the `demo-orm` folder.
 
 ### Caching + Entity Tracking
+
 This feature is enabled per default and **cannot** be disabled. There is no way to interact with it at the moment.
 
 ## Install
