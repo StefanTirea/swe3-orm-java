@@ -11,9 +11,9 @@ import org.postgresql.jdbc.PgArray;
 import orm.annotation.Table;
 import orm.connection.ConnectionConfig;
 import orm.connection.ConnectionPool;
+import orm.entity.TestEntity;
 
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -46,6 +46,13 @@ public class DslContext {
         this.connectionPool = new ConnectionPool(config);
     }
 
+    /**
+     * find entity by id
+     *
+     * @param type entity type
+     * @param id   entity id
+     * @return entity object
+     */
     @SneakyThrows
     public <T> Optional<T> findById(Class<T> type, Object id) {
         log.debug("findById {} {}", type, id);
@@ -55,10 +62,24 @@ public class DslContext {
                 : findFirstBy(type, Query.where().equals(getEntityForClass(type).getPrimaryKeyField().getColumnName(), id));
     }
 
+    /**
+     * find first row by specified query
+     *
+     * @param type  entity type
+     * @param query where query filter
+     * @return Optional entity if exists
+     */
     public <T> Optional<T> findFirstBy(Class<T> type, Query query) {
         return findBy(type, query).stream().findFirst();
     }
 
+    /**
+     * find entity by specified query
+     *
+     * @param type  entity type
+     * @param query where query filter
+     * @return found entity entries filtered by {@link Query}
+     */
     @SuppressWarnings("unchecked")
     public <T> List<T> findBy(Class<T> type, Query query) {
         log.debug("findBy with query {} {}", type, query);
@@ -75,6 +96,12 @@ public class DslContext {
         return (List<T>) mapObjectsFromResultSet(entity, whereAndValues.getValues(), selectQuery);
     }
 
+    /**
+     * delete row in database
+     *
+     * @param entityValue entity with ID to be deleted
+     * @return result of delete operation - true when successful
+     */
     @SneakyThrows
     public <T> boolean delete(T entityValue) {
         Entity entity = getEntityForObject(entityValue);
@@ -88,16 +115,32 @@ public class DslContext {
         return executePreparedStatement(List.of(id), insertQuery) != null;
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * find all entities of specified table
+     *
+     * @param type entity type
+     * @return all found entity entries in table
+     */
     public <T> List<T> findAll(Class<T> type) {
         return findBy(type, null);
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * delete all specified entity objects
+     *
+     * @param entityValues entity objects with ID to be deleted
+     * @return result of delete operations - true when all were successful
+     */
     public <T> boolean deleteAll(List<T> entityValues) {
         return entityValues.stream().allMatch(this::delete);
     }
 
+    /**
+     * insert or update entity object in table
+     *
+     * @param object entity object to be inserted when no ID is specified and updated when an ID is specified
+     * @return ID which has inserted or updated. Null is returned when nothing has been inserted / updated
+     */
     public Object save(Object object) {
         return save(object, true);
     }
@@ -109,7 +152,6 @@ public class DslContext {
                 ? insert(entity, object, true)
                 : update(entity, object, checkDependencies);
         if (id != null) {
-            // TODO make new copy with ID and retun this object instead
             entity.getPrimaryKeyField().getSetMethod().invoke(object, id);
             CACHE.get().setEntity(entity, object);
         }
@@ -196,6 +238,12 @@ public class DslContext {
         }
     }
 
+    /**
+     * @param entity entity meta object
+     * @param values values used for prepared statement
+     * @param query  sql query
+     * @return all mapped entity objects including joins
+     */
     @SneakyThrows
     private List<Object> mapObjectsFromResultSet(Entity entity, List<Object> values, String query) {
         log.debug("Query {} for entity {} with values {}", query, entity, values);
@@ -239,6 +287,9 @@ public class DslContext {
         }
     }
 
+    /**
+     * Logic used to map each column in an entity object
+     */
     private void mapColumnForEntity(ResultSet rs, Object o, Field column, Entity entity) throws SQLException {
         try {
             if (column.isForeignKey()) {
@@ -260,6 +311,12 @@ public class DslContext {
         }
     }
 
+    /**
+     * convert certain PostgreSQL datatypes to Java equivalent types
+     *
+     * @param columnValue column value returned from {@link ResultSet}
+     * @return converted object
+     */
     @SneakyThrows
     private Object convertObject(Object columnValue) {
         if (columnValue == null) {
@@ -276,14 +333,7 @@ public class DslContext {
     }
 
     /**
-     * Handle when column is foreignKey
-     *
-     * @param rs
-     * @param o
-     * @param column
-     * @throws SQLException
-     * @throws IllegalAccessException
-     * @throws InvocationTargetException
+     * Special logic when column is a foreign key
      */
     private void mapForeignKeyColumn(ResultSet rs, Object o, Field column) throws SQLException, IllegalAccessException, InvocationTargetException {
         Object id = rs.getObject(column.getColumnName());
@@ -300,15 +350,7 @@ public class DslContext {
     }
 
     /**
-     * Handle when column is used for joining only
-     *
-     * @param rs
-     * @param o
-     * @param column
-     * @param entity
-     * @throws SQLException
-     * @throws IllegalAccessException
-     * @throws InvocationTargetException
+     * Special logic when column is used for joining only (ManyToMany & OneToMany)
      */
     private void mapJoinColumn(ResultSet rs, Object o, Field column, Entity entity) throws SQLException, IllegalAccessException, InvocationTargetException {
         Class<?> joinType = column.getSubType();
@@ -389,13 +431,8 @@ public class DslContext {
                 .method(ElementMatchers.any())
                 .intercept(MethodDelegation.to(new LazyLoadingInterceptor(lazySupplier)))
                 .make()
-                .load(Object.class.getClassLoader())
+                .load(TestEntity.class.getClassLoader())
                 .getLoaded()
                 .getConstructor().newInstance();
-    }
-
-    @SneakyThrows
-    private Object invoke(Method method, Object o, Object... args) {
-        return method.invoke(o, args);
     }
 }

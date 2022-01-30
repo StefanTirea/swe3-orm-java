@@ -1,6 +1,5 @@
 import orm.connection.ConnectionConfig;
 import orm.meta.DslContext;
-import orm.sample.DatabaseConfig;
 import service.DemoService;
 
 public class Main {

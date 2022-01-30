@@ -18,8 +18,6 @@ public class Query {
     private final List<Pair<String, Object>> where = new ArrayList<>();
     private final List<Expression> expressions = new ArrayList<>();
 
-    // TODO Implement LIMIT
-
     public static Expression where() {
         Query query = new Query();
         Expression expression = Expression.builder()

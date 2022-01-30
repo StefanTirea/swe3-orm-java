@@ -21,7 +21,7 @@ class Entity {
     private final Field primaryKeyField;
 
     public Entity(Class<?> type) {
-        // TODO Validation
+        // optional TODO Validation
         validate(type);
         this.tableName = type.getAnnotation(Table.class).value();
         this.type = type;

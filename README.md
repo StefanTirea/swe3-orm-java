@@ -200,5 +200,5 @@ Run `docker-compose.yml` in `docker` folder. It will create a Postgres 13 Contai
 
 **Run Demo App:**
 
-Run `./gradlew demo-orm:shadowJar && java -jar ./demo-orm/build/libs/demo-orm-1.0-SNAPSHOT-all.jar`
+Run `./gradlew publishToMavenLocal && ./gradlew demo-orm:shadowJar && java -jar ./demo-orm/build/libs/demo-orm-1.0-SNAPSHOT-all.jar`
 in the root directory using Bash
