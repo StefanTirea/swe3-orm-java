@@ -90,8 +90,6 @@ public class DslContext {
 
     @SneakyThrows
     private Object update(Entity entity, Object object) {
-        recursiveUpdate(object, emptyList());
-
         List<Field> changedColumns = CACHE.get().getChangedEntityColumns(object);
         if (changedColumns.isEmpty()) {
             if (log.isTraceEnabled()) {
@@ -112,50 +110,6 @@ public class DslContext {
         String updateQuery = String.format("UPDATE %s SET %s WHERE %s = ?", entity.getTableName(), columns, entity.getPrimaryKeyField().getColumnName());
 
         return executePreparedStatement(values, updateQuery);
-    }
-
-    private void recursiveUpdate(Object object, List<Pair<Class<?>, Object>> ignoreObjects) {
-        Entity entity = getEntityForObject(object);
-        List<Pair<Class<?>, Object>> newIgnoreObjects = new ArrayList<>(ignoreObjects);
-        newIgnoreObjects.add(Pair.of(entity.getType(), entity.getPrimaryKeyField().getColumnValue(object)));
-
-        entity.getForeignKeys().stream()
-                .map(it -> it.invokeGetMethod(object))
-                .filter(it -> ignoreObjects.stream().anyMatch(pair -> (pair.getLeft().equals(it.getClass()) || pair.getLeft().equals(it.getClass().getSuperclass())) && entity.getPrimaryKeyField().getColumnValue(it).equals(pair.getRight())))
-                .forEach(it -> recursiveUpdate(it, newIgnoreObjects));
-
-        entity.getVirtualFields().stream()
-                .flatMap(it -> ((List<?>) it.invokeGetMethod(object)).stream())
-                .filter(it -> ignoreObjects.stream().noneMatch(pair -> (pair.getLeft().equals(it.getClass()) || pair.getLeft().equals(it.getClass().getSuperclass())) && entity.getPrimaryKeyField().getColumnValue(it).equals(pair.getRight())))
-                .forEach(it -> recursiveUpdate(it, newIgnoreObjects));
-
-        // do update for other normal columns
-        // saveWithoutDependencies()
-        updateWithoutDependencies(entity, object);
-    }
-
-    @SneakyThrows
-    private void updateWithoutDependencies(Entity entity, Object object) {
-        List<Field> changedColumns = CACHE.get().getChangedEntityColumns(object);
-        if (changedColumns.isEmpty()) {
-            if (log.isTraceEnabled()) {
-                log.trace("Update Entity {} with value {} has no changes", entity.getType(), object);
-            }
-            return;
-        }
-
-        List<Object> values = ListUtils.union(changedColumns.stream().map(it -> it.getColumnValue(object)).toList(),
-                List.of(entity.getPrimaryKeyField().getColumnValue(object)));
-        if (log.isDebugEnabled()) {
-            log.debug("Changes detected for Entity {} with new values {}", entity.getType(), values);
-        }
-        String columns = changedColumns.stream()
-                .map(field -> field.getColumnName() + " = ?")
-                .collect(Collectors.joining(","));
-
-        String updateQuery = String.format("UPDATE %s SET %s WHERE %s = ?", entity.getTableName(), columns, entity.getPrimaryKeyField().getColumnName());
-
-        executePreparedStatement(values, updateQuery);
     }
 
     @SneakyThrows

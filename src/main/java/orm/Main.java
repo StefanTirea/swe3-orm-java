@@ -35,13 +35,7 @@ public class Main {
 
         var byId1 = dslContext.findById(UserEntity.class, 1).orElseThrow();
 
-        byId1.setAge(87);
-        byId1 = byId1.toBuilder()
-                .log(LogEntity.builder()
-                        .entry("new Entry cascade save")
-                        .user(byId1)
-                        .build())
-                .build();
+        byId1.setAge(99);
         //byId1.getLogs().get(0).setEntry("cascade update working!");
 
         // Cache und diese Entity haben selbe reference im cache
